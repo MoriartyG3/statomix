@@ -11,31 +11,29 @@ from statomix.col_profiler import ColProfiler, ColProfile
 
 
 class ColReport:
-    def __init__(self, df: pd.DataFrame, df_name: str):
-        self.df = df
-        self.df_name = df_name
+    def __init__(self):
 
         self.col_profiler = ColProfiler(cat_unique_thresh=4, num_conversion_thresh=95)
 
-    def create_col_report_default(self, report_path: Path):
+    def create_col_report_default(self, df: pd.DataFrame, report_path: Path):
         assert report_path.suffix == ".xlsx", "report_path should be a .xlsx path."
 
-        self._create_col_profiles()
-        self._create_col_report(report_path=report_path)
+        self._create_col_profiles(df=df)
+        self._create_col_report(df=df, report_path=report_path)
         self._format_cell_length(report_path=report_path)
         self._add_validation_datatype(report_path=report_path)
         self._add_validation_categories(
-            report_path=report_path, datatype=DataTypes.CATEGORICAL.value
+            df=df, report_path=report_path, datatype=DataTypes.CATEGORICAL.value
         )
         self._add_validation_categories(
-            report_path=report_path, datatype=DataTypes.SURVIVAL.value
+            df=df, report_path=report_path, datatype=DataTypes.SURVIVAL.value
         )
         self._protect_worksheets(report_path=report_path)
 
-    def _create_col_profiles(self):
+    def _create_col_profiles(self, df):
         col_profiles: dict[str, ColProfile] = {}
-        for col_name in self.df.columns:
-            col_series = self.df[col_name]
+        for col_name in df.columns:
+            col_series = df[col_name]
 
             col_profile = self.col_profiler.get_col_profile(
                 col_name=col_name,
@@ -53,7 +51,7 @@ class ColReport:
             if profile.col_type == datatype
         ]
 
-    def _create_col_report(self, report_path):
+    def _create_col_report(self, df, report_path):
         """
         Creates a raw column report without any formatting and initializes 
         a hidden sheet for scalable data validation dropdowns.
@@ -68,7 +66,7 @@ class ColReport:
         }
 
         profiled_cols_n = sum(len(col_names) for col_names in sheet_map.values())
-        assert profiled_cols_n == len(self.df.columns)
+        assert profiled_cols_n == len(df.columns)
 
         # Create the .xlsx file
         with pd.ExcelWriter(path=report_path, engine="openpyxl") as writer:
@@ -188,7 +186,7 @@ class ColReport:
 
         workbook.save(filename=report_path)
 
-    def _add_validation_categories(self, report_path, datatype):
+    def _add_validation_categories(self, df, report_path, datatype):
         workbook = load_workbook(filename=report_path)
 
         if datatype not in workbook.sheetnames:
@@ -201,7 +199,7 @@ class ColReport:
             if not cell.value:
                 continue
 
-            categories = list(self.df[cell.value].dropna().unique())
+            categories = list(df[cell.value].dropna().unique())
 
             if len(categories) >= 20 or len(categories) == 0:
                 continue
