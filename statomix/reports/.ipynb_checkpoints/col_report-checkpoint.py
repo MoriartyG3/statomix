@@ -347,15 +347,19 @@ class ColReport:
     
             # Enable sorting and filtering
             worksheet.auto_filter.ref = worksheet.dimensions
+            #worksheet.sheet_view.showGridLines = True
     
-            #worksheet.protection.sheet = True
+            worksheet.protection.sheet = True
             worksheet.protection.autoFilter = True
-            worksheet.protection.sort = True
+            #worksheet.protection.sort = True
 
             if password:
                 worksheet.protection.password = password
     
             # Optional: allow selecting only editable cells
             worksheet.protection.enableSelection = "unlockedCells"
+
+            #worksheet.protection.selectLockedCells = True
+            #worksheet.protection.selectUnlockedCells = True
     
         workbook.save(filename=report_path)
