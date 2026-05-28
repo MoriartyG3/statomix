@@ -65,7 +65,7 @@ class Project:
                         msg=f"Discovered and loaded existing dataset: '{dataset_name}'"
                     )
 
-    def create_col_report(self, dataset_name, report_type='default', create_new=False, password='statomix'):
+    def create_col_report(self, dataset_name, report_type='default', create_new=False, password='statomix', lock=False):
     
         dataset = self.datasets[dataset_name]
     
@@ -82,7 +82,7 @@ class Project:
         
         report_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/f"col_report_version{version}.xlsx"
         
-        dataset.col_report.create_col_report_default(df=dataset.get_source_df(), report_path=report_path, password=password)
+        dataset.col_report.create_col_report_default(df=dataset.get_source_df(), report_path=report_path, password=password, lock=lock)
     
         zarr_group.attrs['col_report_exists'] = True
         zarr_group.attrs['col_report_version'] = version

@@ -324,7 +324,7 @@ class ColReport:
         
     #     workbook.save(filename=report_path)
 
-    def _protect_cols(self, report_path:Path,  password:str|None = None):
+    def _protect_cols(self, report_path:Path, lock:bool,  password:str|None = None):
         workbook = load_workbook(filename=report_path)
     
         for worksheet in workbook.worksheets:
@@ -349,7 +349,7 @@ class ColReport:
             worksheet.auto_filter.ref = worksheet.dimensions
             #worksheet.sheet_view.showGridLines = True
     
-            worksheet.protection.sheet = True
+            worksheet.protection.sheet = lock
             worksheet.protection.autoFilter = True
             #worksheet.protection.sort = True
 
