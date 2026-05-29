@@ -12,54 +12,50 @@ from statomix.col_profiler import ColProfiler, ColProfile
 
 SHEET_CELL_MAP = {
     DataTypes.IDENTIFIER.value: {
-        "col_name": 'A',
-        "change_col_name": 'B', 
-        "inferred_datatype": 'C',
-        "change_datatype": 'D', 
-        "remove": 'E',
+        "col_name": "A",
+        "change_col_name": "B",
+        "inferred_datatype": "C",
+        "change_datatype": "D",
+        "remove": "E",
     },
-    
     DataTypes.NUMERICAL.value: {
-        "col_name": 'A',
-        "change_col_name": 'B',
-        "units": 'C',
-        "inferred_datatype": 'D',
-        "change_datatype": 'E', 
-        "remove": 'F',
+        "col_name": "A",
+        "change_col_name": "B",
+        # "units": 'C',
+        "inferred_datatype": "C",
+        "change_datatype": "D",
+        "remove": "E",
     },
-    
     DataTypes.CATEGORICAL.value: {
-        "col_name": 'A',
-        "change_col_name": 'B', 
-        "inferred_datatype": 'C',
-        "change_datatype": 'D', 
-        "remove": 'E',
+        "col_name": "A",
+        "change_col_name": "B",
+        "inferred_datatype": "C",
+        "change_datatype": "D",
+        "remove": "E",
     },
-    
     DataTypes.SURVIVAL.value: {
-        "col_name": 'A',
-        "change_col_name": 'B', 
-        "inferred_datatype": 'C',
-        "change_datatype": 'D', 
-        "remove": 'E',
+        "col_name": "A",
+        "change_col_name": "B",
+        # "units": 'C',
+        "inferred_datatype": "C",
+        "change_datatype": "D",
+        "remove": "E",
     },
-    
     DataTypes.DATETIME.value: {
-        "col_name": 'A',
-        "change_col_name": 'B', 
-        "inferred_datatype": 'C',
-        "change_datatype": 'D', 
-        "remove": 'E',
-        "format": 'F',
+        "col_name": "A",
+        "change_col_name": "B",
+        "inferred_datatype": "C",
+        "change_datatype": "D",
+        "remove": "E",
+        # "format": 'F',
     },
-
     DataTypes.FREE_TEXT.value: {
-        "col_name": 'A',
-        "change_col_name": 'B', 
-        "inferred_datatype": 'C',
-        "change_datatype": 'D', 
-        "remove": 'E',
-    }
+        "col_name": "A",
+        "change_col_name": "B",
+        "inferred_datatype": "C",
+        "change_datatype": "D",
+        "remove": "E",
+    },
 }
 
 # EDITABLE_COL_NAMES = {
@@ -80,10 +76,19 @@ class ColReport:
 
         self.col_profiler = ColProfiler(cat_unique_thresh=4, num_conversion_thresh=95)
 
-    def create_col_report_default(self, df: pd.DataFrame, report_path: Path, password, lock):
+    def create_col_report_default(
+        self, df: pd.DataFrame, report_path: Path, profiles_path: Path, password, lock
+    ):
         assert report_path.suffix == ".xlsx", "report_path should be a .xlsx path."
+        assert profiles_path.suffix == ".parquet", "profiles_path should be a .parquet path."
 
-        self._create_col_profiles(df=df)
+        # if profiles_path.exists():
+        #     self._load_col_profiles(profiles_path=profiles_path)
+        # else:
+        #     self._create_col_profiles(df=df)
+        #     self._create_col_profiles_df(profiles_path=profiles_path)
+        self._create_col_profiles(df=df)`````````````````````````````````````````````````````````````````````````````````````````
+        
         self._create_col_report_raw(df=df, report_path=report_path)
         self._format_cell_length(report_path=report_path)
         self._add_validation_datatype(report_path=report_path)
@@ -106,6 +111,59 @@ class ColReport:
             )
 
             col_profiles[col_name] = col_profile
+
+        self.col_profiles = col_profiles
+
+    def _create_col_profiles_df(self, profiles_path) -> pd.DataFrame:
+
+        rows = []
+
+        for profile in self.col_profiles.values():
+
+            rows.append(
+                {
+                    "col_name": profile.col_name,
+                    "col_type": (
+                        profile.col_type.value if profile.col_type is not None else None
+                    ),
+                    "missing_n": profile.missing_n,
+                    "missing_pct": profile.missing_pct,
+                    "unique_n": profile.unique_n,
+                    "tokens": "|".join(profile.tokens),
+                    "normalized_name": profile.normalized_name,
+                }
+            )
+
+        col_profilies_df = pd.DataFrame(rows)
+        col_profilies_df.to_parquet(path=profiles_path)
+
+    def _load_col_profiles(self, profiles_path:Path):
+
+        df = pd.read_parquet(profiles_path)
+
+        col_profiles = {}
+
+        for _, row in df.iterrows():
+
+            col_type = DataTypes(row["col_type"]) if pd.notna(row["col_type"]) else None
+
+            tokens = (
+                row["tokens"].split("|")
+                if pd.notna(row["tokens"]) and row["tokens"] != ""
+                else []
+            )
+
+            profile = ColProfile(
+                col_name=row["col_name"],
+                col_type=col_type,
+                missing_n=row["missing_n"],
+                missing_pct=row["missing_pct"],
+                unique_n=row["unique_n"],
+                tokens=tokens,
+                normalized_name=row["normalized_name"],
+            )
+
+            col_profiles[profile.col_name] = profile
 
         self.col_profiles = col_profiles
 
@@ -265,7 +323,7 @@ class ColReport:
             categories = list(df[cell.value].dropna().unique())
             categories.sort()
 
-            #if len(categories) >= 20 or len(categories) == 0:
+            # if len(categories) >= 20 or len(categories) == 0:
             categories = categories[:20]
 
             # Dynamically find the next available column on the validation sheet
@@ -291,76 +349,76 @@ class ColReport:
         workbook.save(filename=report_path)
 
     # def _protect_cols(self, report_path, password):
-    
+
     #     workbook = load_workbook(filename=report_path)
-        
+
     #     for worksheet in workbook.worksheets:
-        
+
     #         if worksheet.title == "__ValidationRanges__":
     #             continue
-        
+
     #         header_map = {
     #             cell.column: cell.value
     #             for cell in worksheet[1]
     #         }
-        
+
     #         for row in worksheet.iter_rows(min_row=2):
-        
+
     #                 for cell in row:
-        
+
     #                     header_name = header_map[cell.column]
-        
+
     #                     if header_name in EDITABLE_COL_NAMES:
     #                         cell.protection = Protection(locked=False)
-        
+
     #                     else:
     #                         cell.protection = Protection(locked=True)
     #         worksheet.auto_filter.ref = worksheet.dimensions
-        
+
     #         worksheet.protection.sheet = True
     #         worksheet.protection.password = password
 
     #         worksheet.protection.sort = True
     #         worksheet.protection.autoFilter = True
-        
+
     #     workbook.save(filename=report_path)
 
-    def _protect_cols(self, report_path:Path, lock:bool,  password:str|None = None):
+    def _protect_cols(self, report_path: Path, lock: bool, password: str | None = None):
         workbook = load_workbook(filename=report_path)
-    
+
         for worksheet in workbook.worksheets:
-    
+
             if worksheet.title == "__ValidationRanges__":
                 continue
-    
+
             # Unlock all cells first
             for row in worksheet.iter_rows():
                 for cell in row:
                     cell.protection = Protection(locked=False)
-    
+
             # Lock only protected columns
             for col_header in PROTECTED_COL_NAMES:
-    
+
                 col_letter = SHEET_CELL_MAP[worksheet.title][col_header]
-    
+
                 for cell in worksheet[col_letter]:
                     cell.protection = Protection(locked=True)
-    
+
             # Enable sorting and filtering
             worksheet.auto_filter.ref = worksheet.dimensions
-            #worksheet.sheet_view.showGridLines = True
-    
+            # worksheet.sheet_view.showGridLines = True
+
             worksheet.protection.sheet = lock
             worksheet.protection.autoFilter = True
-            #worksheet.protection.sort = True
+            # worksheet.protection.sort = True
 
             if password:
                 worksheet.protection.password = password
-    
+
             # Optional: allow selecting only editable cells
             worksheet.protection.enableSelection = "unlockedCells"
 
-            #worksheet.protection.selectLockedCells = True
-            #worksheet.protection.selectUnlockedCells = True
-    
+            # worksheet.protection.selectLockedCells = True
+            # worksheet.protection.selectUnlockedCells = True
+
         workbook.save(filename=report_path)

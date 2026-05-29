@@ -12,12 +12,13 @@ class BaseDataset:
     def __init__(self, dataset_name:str, root_group, df:pd.DataFrame=None):
         
         self.dataset_name = dataset_name
-        self.col_report = ColReport()
-
+        
         self._create_groups(root_group=root_group)
         self._create_paths()
         
         self._create_source_df(df=df)
+        self._col_report = ColReport()
+        #self.create_col_report()
 
     def _create_groups(self, root_group):
         self.zarr_groups = {}
@@ -27,28 +28,12 @@ class BaseDataset:
         if 'source_df_exists' not in self.zarr_groups['df'].attrs:
             self.zarr_groups['df'].attrs['source_df_exists'] =  False
         
-        self.zarr_groups['col_report'] =  self.zarr_groups['root'].require_group('col_report')
-
-        # col_report_meta = self.zarr_groups['col_report'].attrs.get("col_report", {})
-
-        # if 'default' not in col_report_meta:
-        #     col_report_meta['default'] =  {}
-        #     col_report_meta['default']['exists'] = False
-        #     col_report_meta['default']['version'] = 0
-
-        #     self.zarr_groups['col_report'].attrs['col_report'] = col_report_meta
+        self.zarr_groups['col_report_default'] =  self.zarr_groups['root'].require_group('col_report_default')
+        self.zarr_groups['col_report_curated'] = self.zarr_groups['root'].require_group('col_report_curated')
 
     def _create_paths(self):
         self.paths = {}
         self.paths['source_df'] = BaseZARR.get_abs_path(zarr_group=self.zarr_groups['df'])/"source_df.parquet"
-
-        #Col Reports
-        # col_report_meta = self.zarr_groups["col_report"].attrs["col_report"]
-        # version = col_report_meta['default']['version']
-
-        # self.paths["col_report"] = {}
-        # self.paths["col_report"]["default"]=BaseZARR.get_abs_path(zarr_group=self.zarr_groups['col_report'])/ f"col_report_version{version}.xlsx"
-    
         
     def get_source_df(self):
         source_df_path =  self.paths['source_df']
@@ -86,3 +71,49 @@ class BaseDataset:
         error_msg = f"source_df doesn't exist at {source_df_path} and provided df is None."
         logger.error(msg=error_msg)
         raise ValueError(error_msg)
+
+    def create_col_report(
+        self,
+        report_type="default",
+        create_new=False,
+        password="statomix",
+        lock=False,
+    ):
+        #dataset = self.datasets[dataset_name]
+
+        if report_type == "default":
+            zarr_group = self.zarr_groups["col_report_default"]
+            col_report_default_meta  = zarr_group.attrs.get("col_report_default", {})
+            
+            if 'default' not in col_report_default_meta:
+                col_report_default_meta['default'] =  {}
+                col_report_default_meta['default']['exists'] = False
+                col_report_default_meta['default']['version'] = 0
+                
+            version = col_report_default_meta['default']['version']
+
+            if not col_report_default_meta['default']['exists']:
+                version = 1
+            elif create_new:
+                version += 1
+            else:
+                logger.info(
+                    msg=f"{Logger.Emojis.WARN} Default column report version {version} already exists. Set create_new=True to create a new version."
+                )
+                return
+
+            report_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_report_version{version}.xlsx"
+            profiles_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_profile_version{version}.parquet"
+
+            self._col_report.create_col_report_default(
+                df=self.get_source_df(),
+                report_path=report_path,
+                profiles_path=profiles_path,
+                password=password,
+                lock=lock,
+            )
+
+            col_report_default_meta['default']['version'] = version
+            col_report_default_meta['default']['exists'] = True
+
+            self.zarr_groups["col_report_default"].attrs["col_report_default"] = col_report_default_meta

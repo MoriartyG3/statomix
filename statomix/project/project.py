@@ -92,53 +92,6 @@ class Project:
                         msg=f"Discovered and loaded existing dataset: '{dataset_name}'"
                     )
     
-    def create_col_report(
-        self,
-        dataset_name,
-        report_type="default",
-        create_new=False,
-        password="statomix",
-        lock=False,
-    ):
-        dataset = self.datasets[dataset_name]
-        zarr_group = dataset.zarr_groups["col_report"]
-
-        col_report_meta = zarr_group.attrs.get("col_report", {})
-
-        if report_type == "default":
-            
-            if 'default' not in col_report_meta:
-                col_report_meta['default'] =  {}
-                col_report_meta['default']['exists'] = False
-                col_report_meta['default']['version'] = 0
-                
-            version = col_report_meta['default']['version']
-
-            if not col_report_meta['default']['exists']:
-                version = 1
-            elif create_new:
-                version += 1
-            else:
-                logger.info(
-                    msg=f"{Logger.Emojis.WARN} Default column report version {version} already exists. Set create_new=True to create a new version."
-                )
-                return
-
-            report_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_report_version{version}.xlsx"
-
-            dataset.col_report.create_col_report_default(
-                df=dataset.get_source_df(),
-                report_path=report_path,
-                password=password,
-                lock=lock,
-            )
-
-            col_report_meta['default']['version'] = version
-            col_report_meta['default']['exists'] = True
-
-            dataset.zarr_groups["col_report"].attrs["col_report"] = col_report_meta
-            
-
     # def create_col_report(
     #     self,
     #     dataset_name,
@@ -147,39 +100,42 @@ class Project:
     #     password="statomix",
     #     lock=False,
     # ):
-
     #     dataset = self.datasets[dataset_name]
+        
+    #     if report_type == "default":
+    #         zarr_group = dataset.zarr_groups["col_report_default"]
+    #         col_report_default_meta  = zarr_group.attrs.get("col_report_default", {})
+            
+    #         if 'default' not in col_report_default_meta:
+    #             col_report_default_meta['default'] =  {}
+    #             col_report_default_meta['default']['exists'] = False
+    #             col_report_default_meta['default']['version'] = 0
+                
+    #         version = col_report_default_meta['default']['version']
 
-    #     zarr_group = dataset.zarr_groups["col_report"]
-    #     version = dataset.zarr_groups["col_report"].attrs["col_report_version"]
+    #         if not col_report_default_meta['default']['exists']:
+    #             version = 1
+    #         elif create_new:
+    #             version += 1
+    #         else:
+    #             logger.info(
+    #                 msg=f"{Logger.Emojis.WARN} Default column report version {version} already exists. Set create_new=True to create a new version."
+    #             )
+    #             return
 
-    #     if not zarr_group.attrs["col_report_exists"]:
-    #         version = 1
-    #     elif create_new:
-    #         version += 1
-    #     else:
-    #         logger.info(
-    #             msg=f"{Logger.Emojis.WARN} col_report version already exists. Set create_new=True to create a new version."
+    #         report_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_report_version{version}.xlsx"
+    #         profiles_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_profile_version{version}.parquet"
+
+    #         dataset.col_report.create_col_report_default(
+    #             df=dataset.get_source_df(),
+    #             report_path=report_path,
+    #             profiles_path=profiles_path,
+    #             password=password,
+    #             lock=lock,
     #         )
-    #         return
 
-    #     report_path = (
-    #         BaseZARR.get_abs_path(zarr_group=zarr_group)
-    #         / f"col_report_version{version}.xlsx"
-    #     )
+    #         col_report_default_meta['default']['version'] = version
+    #         col_report_default_meta['default']['exists'] = True
 
-    #     dataset.col_report.create_col_report_default(
-    #         df=dataset.get_source_df(),
-    #         report_path=report_path,
-    #         password=password,
-    #         lock=lock,
-    #     )
-
-    #     zarr_group.attrs["col_report_exists"] = True
-    #     zarr_group.attrs["col_report_version"] = version
-
-    # def add_dataset(self, df, df_name):
-    #     if df_name not in self.df_dict:
-    #         self.df_dict[df_name] = DatasetNode(df=df, df_name=df_name, df_root_group=self._df_root_group)
-    #     else:
-    #         logger.warning(f"Dataset {df_name} already exists in the project.")
+    #         dataset.zarr_groups["col_report_default"].attrs["col_report_default"] = col_report_default_meta 
+            
