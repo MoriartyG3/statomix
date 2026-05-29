@@ -21,10 +21,11 @@ SHEET_CELL_MAP = {
     
     DataTypes.NUMERICAL.value: {
         "col_name": 'A',
-        "change_col_name": 'B', 
-        "inferred_datatype": 'C',
-        "change_datatype": 'D', 
-        "remove": 'E',
+        "change_col_name": 'B',
+        "units": 'C',
+        "inferred_datatype": 'D',
+        "change_datatype": 'E', 
+        "remove": 'F',
     },
     
     DataTypes.CATEGORICAL.value: {
@@ -79,7 +80,7 @@ class ColReport:
 
         self.col_profiler = ColProfiler(cat_unique_thresh=4, num_conversion_thresh=95)
 
-    def create_col_report_default(self, df: pd.DataFrame, report_path: Path, password):
+    def create_col_report_default(self, df: pd.DataFrame, report_path: Path, password, lock):
         assert report_path.suffix == ".xlsx", "report_path should be a .xlsx path."
 
         self._create_col_profiles(df=df)
@@ -92,7 +93,7 @@ class ColReport:
                 df=df, report_path=report_path, datatype=datatype.value
             )
 
-        self._protect_cols(report_path=report_path, password=password)
+        self._protect_cols(report_path=report_path, password=password, lock=lock)
 
     def _create_col_profiles(self, df):
         col_profiles: dict[str, ColProfile] = {}

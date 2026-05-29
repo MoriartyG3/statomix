@@ -1,4 +1,5 @@
 import pandas as pd
+from pandas.testing import assert_frame_equal
 
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
@@ -14,6 +15,8 @@ class BaseDataset:
         self.col_report = ColReport()
 
         self._create_groups(root_group=root_group)
+        self._create_paths()
+        
         self._create_source_df(df=df)
 
     def _create_groups(self, root_group):
@@ -24,14 +27,31 @@ class BaseDataset:
         if 'source_df_exists' not in self.zarr_groups['df'].attrs:
             self.zarr_groups['df'].attrs['source_df_exists'] =  False
         
-        self.zarr_groups['report'] =  self.zarr_groups['root'].require_group('report')
+        self.zarr_groups['col_report'] =  self.zarr_groups['root'].require_group('col_report')
 
-        if 'col_report_exists' not in self.zarr_groups['report'].attrs:
-            self.zarr_groups['report'].attrs['col_report_exists'] =  False
-            self.zarr_groups['report'].attrs['col_report_version'] = 0
+        # col_report_meta = self.zarr_groups['col_report'].attrs.get("col_report", {})
+
+        # if 'default' not in col_report_meta:
+        #     col_report_meta['default'] =  {}
+        #     col_report_meta['default']['exists'] = False
+        #     col_report_meta['default']['version'] = 0
+
+        #     self.zarr_groups['col_report'].attrs['col_report'] = col_report_meta
+
+    def _create_paths(self):
+        self.paths = {}
+        self.paths['source_df'] = BaseZARR.get_abs_path(zarr_group=self.zarr_groups['df'])/"source_df.parquet"
+
+        #Col Reports
+        # col_report_meta = self.zarr_groups["col_report"].attrs["col_report"]
+        # version = col_report_meta['default']['version']
+
+        # self.paths["col_report"] = {}
+        # self.paths["col_report"]["default"]=BaseZARR.get_abs_path(zarr_group=self.zarr_groups['col_report'])/ f"col_report_version{version}.xlsx"
+    
         
     def get_source_df(self):
-        source_df_path =  BaseZARR.get_abs_path(zarr_group=self.zarr_groups['df'])/"source_df.parquet"
+        source_df_path =  self.paths['source_df']
 
         if source_df_path.exists():
             return pd.read_parquet(path=source_df_path)
@@ -39,15 +59,23 @@ class BaseDataset:
             logger.error(f'source_df does not exist at {source_df_path}')
             return
             
-    def _create_source_df(self, df):
-        source_df_path =  BaseZARR.get_abs_path(zarr_group=self.zarr_groups['df'])/"source_df.parquet"
+    def _create_source_df(self, df:pd.DataFrame|None):
+        source_df_path =  self.paths['source_df']
 
         if source_df_path.exists():
+            
             if df is not None:
-                logger.warning(f"source_df already exists. The provided DataFrame was NOT saved to avoid overwriting.")
-            # else:
-            #     logger.info(f"source_df already exists. Loaded from disk storage.")
-            return  # Exit early since the file is safely there
+                
+                existing_df = pd.read_parquet(source_df_path)
+
+                try:
+                    assert_frame_equal(left=existing_df, right=df)
+                    logger.warning(f"source_df already exists. The provided DataFrame was NOT saved to avoid overwriting.")
+                except AssertionError as e:
+                    logger.warning(f"source_df already exists. However, the provided DataFrame is NOT identical to the saved DataFrame.")
+                    logger.debug(str(e))
+                    
+            return  
 
         if df is not None:
             df.to_parquet(path=source_df_path, index=False)
