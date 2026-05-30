@@ -92,6 +92,9 @@ class BaseDataset:
                 
             version = col_report_default_meta['default']['version']
 
+            # report_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_report_version{version}.xlsx"
+            # profiles_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_profile_version{version}.parquet"
+            
             if not col_report_default_meta['default']['exists']:
                 version = 1
             elif create_new:

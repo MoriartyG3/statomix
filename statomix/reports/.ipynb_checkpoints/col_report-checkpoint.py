@@ -80,16 +80,13 @@ class ColReport:
         self, df: pd.DataFrame, report_path: Path, profiles_path: Path, password, lock
     ):
         assert report_path.suffix == ".xlsx", "report_path should be a .xlsx path."
-        assert profiles_path.suffix == ".parquet", "profiles_path should be a .parquet path."
+        assert (
+            profiles_path.suffix == ".parquet"
+        ), "profiles_path should be a .parquet path."
 
-        # if profiles_path.exists():
-        #     self._load_col_profiles(profiles_path=profiles_path)
-        # else:
-        #     self._create_col_profiles(df=df)
-        #     self._create_col_profiles_df(profiles_path=profiles_path)
-        self._create_col_profiles(df=df)`````````````````````````````````````````````````````````````````````````````````````````
-        
-        self._create_col_report_raw(df=df, report_path=report_path)
+        col_profiles = self.create_col_profiles(df=df)
+        self.save_col_profiles(profiles_path=profiles_path, col_profiles=col_profiles)
+        self._save_col_report_raw(df=df, report_path=report_path, col_profiles=col_profiles)
         self._format_cell_length(report_path=report_path)
         self._add_validation_datatype(report_path=report_path)
 
@@ -100,7 +97,7 @@ class ColReport:
 
         self._protect_cols(report_path=report_path, password=password, lock=lock)
 
-    def _create_col_profiles(self, df):
+    def create_col_profiles(self, df):
         col_profiles: dict[str, ColProfile] = {}
         for col_name in df.columns:
             col_series = df[col_name]
@@ -112,60 +109,88 @@ class ColReport:
 
             col_profiles[col_name] = col_profile
 
-        self.col_profiles = col_profiles
+        return col_profiles
 
-    def _create_col_profiles_df(self, profiles_path) -> pd.DataFrame:
+    # def save_col_profiles(self, profiles_path, col_profiles) ->:
 
-        rows = []
+    #     rows = []
 
-        for profile in self.col_profiles.values():
+    #     for profile in col_profiles.values():
 
-            rows.append(
-                {
-                    "col_name": profile.col_name,
-                    "col_type": (
-                        profile.col_type.value if profile.col_type is not None else None
-                    ),
-                    "missing_n": profile.missing_n,
-                    "missing_pct": profile.missing_pct,
-                    "unique_n": profile.unique_n,
-                    "tokens": "|".join(profile.tokens),
-                    "normalized_name": profile.normalized_name,
-                }
-            )
+    #         rows.append(
+    #             {
+    #                 "col_name": profile.col_name,
+    #                 "col_type": (
+    #                     profile.col_type.value if profile.col_type is not None else None
+    #                 ),
+    #                 "missing_n": profile.missing_n,
+    #                 "missing_pct": profile.missing_pct,
+    #                 "unique_n": profile.unique_n,
+    #                 "tokens": "|".join(profile.tokens),
+    #                 "normalized_name": profile.normalized_name,
+    #             }
+    #         )
 
-        col_profilies_df = pd.DataFrame(rows)
-        col_profilies_df.to_parquet(path=profiles_path)
+    #     col_profilies_df = pd.DataFrame(rows)
+    #     col_profilies_df.to_parquet(path=profiles_path)
 
-    def _load_col_profiles(self, profiles_path:Path):
+    def save_col_profiles(
+        self,
+        profiles_path: Path,
+        col_profiles: dict[str, ColProfile],
+    ) -> None:
+    
+        rows = [
+            profile.to_dict()
+            for profile in col_profiles.values()
+        ]
+    
+        pd.DataFrame(rows).to_parquet(profiles_path)
 
+    def load_col_profiles(
+        self,
+        profiles_path: Path,
+    ) -> dict[str, ColProfile]:
+    
         df = pd.read_parquet(profiles_path)
-
-        col_profiles = {}
-
+    
+        col_profiles: dict[str, ColProfile] = {}
+    
         for _, row in df.iterrows():
-
-            col_type = DataTypes(row["col_type"]) if pd.notna(row["col_type"]) else None
-
-            tokens = (
-                row["tokens"].split("|")
-                if pd.notna(row["tokens"]) and row["tokens"] != ""
-                else []
-            )
-
-            profile = ColProfile(
-                col_name=row["col_name"],
-                col_type=col_type,
-                missing_n=row["missing_n"],
-                missing_pct=row["missing_pct"],
-                unique_n=row["unique_n"],
-                tokens=tokens,
-                normalized_name=row["normalized_name"],
-            )
-
+            profile = ColProfile.from_dict(row)
             col_profiles[profile.col_name] = profile
+    
+        return col_profiles
 
-        self.col_profiles = col_profiles
+    # def load_col_profiles(self, profiles_path: Path):
+
+    #     df = pd.read_parquet(profiles_path)
+
+    #     col_profiles = {}
+
+    #     for _, row in df.iterrows():
+
+    #         col_type = DataTypes(row["col_type"]) if pd.notna(row["col_type"]) else None
+
+    #         tokens = (
+    #             row["tokens"].split("|")
+    #             if pd.notna(row["tokens"]) and row["tokens"] != ""
+    #             else []
+    #         )
+
+    #         profile = ColProfile(
+    #             col_name=row["col_name"],
+    #             col_type=col_type,
+    #             missing_n=row["missing_n"],
+    #             missing_pct=row["missing_pct"],
+    #             unique_n=row["unique_n"],
+    #             tokens=tokens,
+    #             normalized_name=row["normalized_name"],
+    #         )
+
+    #         col_profiles[profile.col_name] = profile
+            
+    #     return col_profiles
 
     def _format_cell_length(self, report_path):
         workbook = load_workbook(filename=report_path)
@@ -209,14 +234,14 @@ class ColReport:
 
         return validation_df
 
-    def _create_col_report_raw(self, df, report_path):
+    def _save_col_report_raw(self, df, report_path, col_profiles):
         """
         Creates the raw col_report without validation or formatting
         """
         sheet_map = {
             datatype: [
                 profile.col_name
-                for profile in self.col_profiles.values()
+                for profile in col_profiles.values()
                 if profile.col_type == datatype
             ]
             for datatype in DataTypes
@@ -233,7 +258,7 @@ class ColReport:
                 rows = []
                 for col_name in col_names:
 
-                    profile = self.col_profiles[col_name]
+                    profile = col_profiles[col_name]
 
                     row_data = {}
                     for col_header in schema.keys():

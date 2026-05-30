@@ -11,15 +11,64 @@ from .semantic_rules import (
 )
 
 
+# @dataclass
+# class ColProfile:
+#     col_name: str
+#     col_type: DataTypes | None
+#     missing_n: int
+#     missing_pct: float
+#     unique_n: int
+#     tokens: list[str]
+#     normalized_name: str
+
 @dataclass
 class ColProfile:
+
     col_name: str
     col_type: DataTypes | None
     missing_n: int
     missing_pct: float
-    unique_n: int
+    unique_n: int | None
     tokens: list[str]
     normalized_name: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "col_name": self.col_name,
+            "col_type": (
+                self.col_type.value
+                if self.col_type is not None
+                else None
+            ),
+            "missing_n": self.missing_n,
+            "missing_pct": self.missing_pct,
+            "unique_n": self.unique_n,
+            "tokens": "|".join(self.tokens),
+            "normalized_name": self.normalized_name,
+        }
+
+    @classmethod
+    def from_dict(cls, row:pd.Series|dict):
+        return cls(
+            col_name=row["col_name"],
+            col_type=(
+                DataTypes(row["col_type"])
+                if pd.notna(row["col_type"])
+                else None
+            ),
+            missing_n=row["missing_n"],
+            missing_pct=row["missing_pct"],
+            #unique_n=row["unique_n"],
+            unique_n=(
+                int(row["unique_n"])
+                if pd.notna(row["unique_n"])
+                else None
+            ),
+            tokens=row["tokens"].split("|")
+            if pd.notna(row["tokens"]) and row["tokens"]
+            else [],
+            normalized_name=row["normalized_name"],
+        )
 
 
 @dataclass
@@ -27,7 +76,7 @@ class RawColProfile:
     col_name: str
     col_type: DataTypes | None
 
-    unique_n: int
+    unique_n: int | None
     missing_n: int
     missing_pct: float
     num_conversion_pct: float | None
