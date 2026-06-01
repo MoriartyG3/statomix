@@ -1,6 +1,6 @@
 import pandas as pd
 from pathlib import Path
-
+from dataclasses import dataclass
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -71,22 +71,106 @@ PROTECTED_COL_NAMES = [
 ]
 
 
+@dataclass
+class ColEdit:
+    """
+    User modifications for a single column.
+    """
+
+    col_name: str
+    remove: bool = False
+    change_col_name: str | None = None
+    change_datatype: DataTypes | None = None
+
+    def to_dict(self) -> dict:
+        """Converts the instance to a dictionary for saving."""
+        return {
+            "col_name": self.col_name,
+            "remove": self.remove,
+            "change_col_name": self.change_col_name,
+            # We store the value of the Enum so it can be saved as a string/primitive
+            "change_datatype": (
+                self.change_datatype.value if self.change_datatype else None
+            ),
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> "ColEdit":
+        """Creates an instance from a dictionary loaded from a file."""
+        return ColEdit(
+            col_name=data["col_name"],
+            remove=bool(data.get("remove", False)),
+            change_col_name=(
+                data.get("change_col_name")
+                if pd.notna(data.get("change_col_name"))
+                else None
+            ),
+            # We convert the string value back into the DataTypes Enum
+            change_datatype=(
+                DataTypes(data["change_datatype"])
+                if pd.notna(data.get("change_datatype"))
+                else None
+            ),
+        )
+
+
+@dataclass
+class ColEditSchema:
+    """
+    Contains only columns that have been modified by the user.
+    """
+
+    edits: dict[str, ColEdit]
+
+    def save(
+        self, path: Path
+    ) -> None:  # schema: ColEditSchema, save_path: Path) -> None:
+        """
+        Converts the ColEditSchema to a DataFrame and saves it as a CSV.
+        """
+        # Convert dictionary of ColEdit objects to a list of dictionaries
+        rows = [edit.to_dict() for edit in self.edits.values()]
+
+        df = pd.DataFrame(data=rows)
+        df.to_parquet(path=path, index=False)
+
+    @classmethod
+    def load(cls, path: Path) -> "ColEditSchema":
+        """
+        Loads the CSV and reconstructs the ColEditSchema object.
+        """
+        df = pd.read_parquet(path=path)
+
+        edits: dict[str, ColEdit] = {}
+        for _, row in df.iterrows():
+            # Use the static method you defined in the ColEdit class
+            edit = ColEdit.from_dict(row.to_dict())
+            edits[edit.col_name] = edit
+
+        return cls(edits=edits)
+
+
 class ColReport:
     def __init__(self):
 
         self.col_profiler = ColProfiler(cat_unique_thresh=4, num_conversion_thresh=95)
 
-    def create_col_report_default(
-        self, df: pd.DataFrame, report_path: Path, profiles_path: Path, password, lock
+    def _create_col_report(
+        self,
+        df: pd.DataFrame,
+        col_profiles,
+        report_path: Path,
+        #profiles_path: Path,
+        password,
+        lock,
     ):
         assert report_path.suffix == ".xlsx", "report_path should be a .xlsx path."
-        assert (
-            profiles_path.suffix == ".parquet"
-        ), "profiles_path should be a .parquet path."
+        # assert (
+        #     profiles_path.suffix == ".parquet"
+        # ), "profiles_path should be a .parquet path."
 
-        col_profiles = self.create_col_profiles(df=df)
-        self.save_col_profiles(profiles_path=profiles_path, col_profiles=col_profiles)
-        self._save_col_report_raw(df=df, report_path=report_path, col_profiles=col_profiles)
+        # col_profiles = self.create_col_profiles(df=df)
+        self._save_col_report(report_path=report_path, col_profiles=col_profiles)
         self._format_cell_length(report_path=report_path)
         self._add_validation_datatype(report_path=report_path)
 
@@ -139,27 +223,24 @@ class ColReport:
         profiles_path: Path,
         col_profiles: dict[str, ColProfile],
     ) -> None:
-    
-        rows = [
-            profile.to_dict()
-            for profile in col_profiles.values()
-        ]
-    
+
+        rows = [profile.to_dict() for profile in col_profiles.values()]
+
         pd.DataFrame(rows).to_parquet(profiles_path)
 
     def load_col_profiles(
         self,
         profiles_path: Path,
     ) -> dict[str, ColProfile]:
-    
+
         df = pd.read_parquet(profiles_path)
-    
+
         col_profiles: dict[str, ColProfile] = {}
-    
+
         for _, row in df.iterrows():
             profile = ColProfile.from_dict(row)
             col_profiles[profile.col_name] = profile
-    
+
         return col_profiles
 
     # def load_col_profiles(self, profiles_path: Path):
@@ -189,7 +270,7 @@ class ColReport:
     #         )
 
     #         col_profiles[profile.col_name] = profile
-            
+
     #     return col_profiles
 
     def _format_cell_length(self, report_path):
@@ -234,7 +315,7 @@ class ColReport:
 
         return validation_df
 
-    def _save_col_report_raw(self, df, report_path, col_profiles):
+    def _save_col_report(self, report_path, col_profiles, rename_mapping=None):
         """
         Creates the raw col_report without validation or formatting
         """
@@ -247,8 +328,8 @@ class ColReport:
             for datatype in DataTypes
         }
 
-        profiled_cols_n = sum(len(col_names) for col_names in sheet_map.values())
-        assert profiled_cols_n == len(df.columns)
+        # profiled_cols_n = sum(len(col_names) for col_names in sheet_map.values())
+        # assert profiled_cols_n == len(df.columns)
 
         with pd.ExcelWriter(path=report_path, engine="openpyxl") as writer:
             for datatype, col_names in sheet_map.items():
@@ -257,8 +338,8 @@ class ColReport:
                 schema = SHEET_CELL_MAP[datatype.value]
                 rows = []
                 for col_name in col_names:
-
-                    profile = col_profiles[col_name]
+                    target_name = rename_mapping.get(col_name, col_name) if rename_mapping else col_name
+                    profile = col_profiles[target_name]    
 
                     row_data = {}
                     for col_header in schema.keys():
@@ -331,8 +412,9 @@ class ColReport:
 
         workbook.save(filename=report_path)
 
-    def _add_validation_categories(self, df, report_path, datatype):
+    def _add_validation_categories(self, df, report_path, datatype, rename_mapping=None):
 
+        # mapping = rename_mapping or {}
         workbook = load_workbook(filename=report_path)
 
         if datatype not in workbook.sheetnames:
@@ -345,7 +427,9 @@ class ColReport:
             if not cell.value:
                 continue
 
-            categories = list(df[cell.value].dropna().unique())
+            #target_name = mapping.get(cell.value, cell.value)
+            target_name = rename_mapping.get(cell.value, cell.value) if rename_mapping else cell.value
+            categories = list(df[target_name].dropna().unique())
             categories.sort()
 
             # if len(categories) >= 20 or len(categories) == 0:
@@ -447,3 +531,46 @@ class ColReport:
             # worksheet.protection.selectUnlockedCells = True
 
         workbook.save(filename=report_path)
+
+    def get_col_edit_schema(self, curated_col_report):
+        rename_mapping = {}
+        edits: dict[str, ColEdit] = {}
+        
+        
+        for sheet_name in curated_col_report.sheet_names:
+            if sheet_name == "__ValidationRanges__":
+                continue
+
+            datatype_df = curated_col_report.parse(sheet_name=sheet_name)
+
+            for _, row in datatype_df.iterrows():
+                col_name = row["col_name"]
+
+                remove = False
+                if pd.notna(row["remove"]):
+                    remove = bool(row["remove"])
+
+                change_col_name = None
+                if pd.notna(row["change_col_name"]):
+                    new_name = str(row["change_col_name"]).strip()
+                    if new_name:
+                        change_col_name = new_name
+                        rename_mapping[new_name] = col_name
+
+                change_datatype = None
+                if pd.notna(row["change_datatype"]):
+                    change_datatype = DataTypes(row["change_datatype"])
+
+                if not (
+                    remove or change_col_name is not None or change_datatype is not None
+                ):
+                    continue
+
+                edits[col_name] = ColEdit(
+                    col_name=col_name,
+                    remove=remove,
+                    change_col_name=change_col_name,
+                    change_datatype=change_datatype,
+                )
+
+        return rename_mapping, ColEditSchema(edits=edits)
