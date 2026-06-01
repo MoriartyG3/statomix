@@ -163,6 +163,7 @@ class ColReport:
         #profiles_path: Path,
         password,
         lock,
+        rename_mapping=None,
     ):
         assert report_path.suffix == ".xlsx", "report_path should be a .xlsx path."
         # assert (
@@ -170,13 +171,13 @@ class ColReport:
         # ), "profiles_path should be a .parquet path."
 
         # col_profiles = self.create_col_profiles(df=df)
-        self._save_col_report(report_path=report_path, col_profiles=col_profiles)
+        self._save_col_report(report_path=report_path, col_profiles=col_profiles, rename_mapping=rename_mapping)
         self._format_cell_length(report_path=report_path)
         self._add_validation_datatype(report_path=report_path)
 
         for datatype in DataTypes:
             self._add_validation_categories(
-                df=df, report_path=report_path, datatype=datatype.value
+                df=df, report_path=report_path, datatype=datatype.value, rename_mapping=rename_mapping
             )
 
         self._protect_cols(report_path=report_path, password=password, lock=lock)

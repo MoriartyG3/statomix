@@ -162,6 +162,7 @@ class BaseDataset:
                 version = col_report_default_meta["default"]["version"]
             else:
                 print("Create a default column report first")
+                return
 
         col_edit_schema_path = (
             BaseZARR.get_abs_path(curated_zarr_group)
