@@ -160,7 +160,7 @@ class ColReport:
         df: pd.DataFrame,
         col_profiles,
         report_path: Path,
-        #profiles_path: Path,
+        # profiles_path: Path,
         password,
         lock,
         rename_mapping=None,
@@ -171,13 +171,20 @@ class ColReport:
         # ), "profiles_path should be a .parquet path."
 
         # col_profiles = self.create_col_profiles(df=df)
-        self._save_col_report(report_path=report_path, col_profiles=col_profiles, rename_mapping=rename_mapping)
+        self._save_col_report(
+            report_path=report_path,
+            col_profiles=col_profiles,
+            rename_mapping=rename_mapping,
+        )
         self._format_cell_length(report_path=report_path)
         self._add_validation_datatype(report_path=report_path)
 
         for datatype in DataTypes:
             self._add_validation_categories(
-                df=df, report_path=report_path, datatype=datatype.value, rename_mapping=rename_mapping
+                df=df,
+                report_path=report_path,
+                datatype=datatype.value,
+                rename_mapping=rename_mapping,
             )
 
         self._protect_cols(report_path=report_path, password=password, lock=lock)
@@ -339,8 +346,12 @@ class ColReport:
                 schema = SHEET_CELL_MAP[datatype.value]
                 rows = []
                 for col_name in col_names:
-                    target_name = rename_mapping.get(col_name, col_name) if rename_mapping else col_name
-                    profile = col_profiles[target_name]    
+                    target_name = (
+                        rename_mapping.get(col_name, col_name)
+                        if rename_mapping
+                        else col_name
+                    )
+                    profile = col_profiles[target_name]
 
                     row_data = {}
                     for col_header in schema.keys():
@@ -413,7 +424,9 @@ class ColReport:
 
         workbook.save(filename=report_path)
 
-    def _add_validation_categories(self, df, report_path, datatype, rename_mapping=None):
+    def _add_validation_categories(
+        self, df, report_path, datatype, rename_mapping=None
+    ):
 
         # mapping = rename_mapping or {}
         workbook = load_workbook(filename=report_path)
@@ -428,8 +441,12 @@ class ColReport:
             if not cell.value:
                 continue
 
-            #target_name = mapping.get(cell.value, cell.value)
-            target_name = rename_mapping.get(cell.value, cell.value) if rename_mapping else cell.value
+            # target_name = mapping.get(cell.value, cell.value)
+            target_name = (
+                rename_mapping.get(cell.value, cell.value)
+                if rename_mapping
+                else cell.value
+            )
             categories = list(df[target_name].dropna().unique())
             categories.sort()
 
@@ -536,8 +553,7 @@ class ColReport:
     def get_col_edit_schema(self, curated_col_report):
         rename_mapping = {}
         edits: dict[str, ColEdit] = {}
-        
-        
+
         for sheet_name in curated_col_report.sheet_names:
             if sheet_name == "__ValidationRanges__":
                 continue

@@ -131,13 +131,15 @@ class BaseDataset:
             )
 
             col_profiles = self._col_report.create_col_profiles(df=self.get_source_df())
-            self._col_report.save_col_profiles(profiles_path=profiles_path, col_profiles=col_profiles)
+            self._col_report.save_col_profiles(
+                profiles_path=profiles_path, col_profiles=col_profiles
+            )
 
             self._col_report._create_col_report(
                 df=self.get_source_df(),
                 col_profiles=col_profiles,
                 report_path=report_path,
-                #profiles_path=profiles_path,
+                # profiles_path=profiles_path,
                 password=password,
                 lock=lock,
             )
@@ -154,7 +156,7 @@ class BaseDataset:
         default_zarr_group = self.zarr_groups["col_report_default"]
         curated_zarr_group = self.zarr_groups["col_report_curated"]
         # curated_version_meta = curated_zarr_group.attrs.get(f"version{version}", {})
-        
+
         if version is None:
             col_report_default_meta = default_zarr_group.attrs["col_report_default"]
 
@@ -187,12 +189,17 @@ class BaseDataset:
             print(f"Column edit schema version{version} already exists.")
             return
 
-        rename_mapping, col_edit_schema = self._col_report.get_col_edit_schema(curated_col_report)
+        rename_mapping, col_edit_schema = self._col_report.get_col_edit_schema(
+            curated_col_report
+        )
 
-        rename_mapping_path = (BaseZARR.get_abs_path(curated_zarr_group)/ f"version{version}_rename_mapping.yaml")
+        rename_mapping_path = (
+            BaseZARR.get_abs_path(curated_zarr_group)
+            / f"version{version}_rename_mapping.yaml"
+        )
 
         base_yaml.save(data=rename_mapping, path=rename_mapping_path)
-        
+
         # curated_version_meta['rename_mapping'] = rename_mapping
         # curated_zarr_group.attrs[f'version{version}'] = curated_version_meta
 
