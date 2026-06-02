@@ -6,6 +6,7 @@ from fileverse.formats.zarr import BaseZARR
 from fileverse.formats.yaml import BaseYAML
 
 from statomix.reports.col_report import ColReport
+from statomix.reports.col_report import ColEditSchema
 
 base_yaml = BaseYAML()
 logger = Logger(name="BaseDataset").get_logger()
@@ -151,11 +152,10 @@ class BaseDataset:
                 "col_report_default"
             ] = col_report_default_meta
 
-    def create_col_edit_schema(self, version=None):
+    def _create_col_edit_schema(self, version=None):
 
         default_zarr_group = self.zarr_groups["col_report_default"]
         curated_zarr_group = self.zarr_groups["col_report_curated"]
-        # curated_version_meta = curated_zarr_group.attrs.get(f"version{version}", {})
 
         if version is None:
             col_report_default_meta = default_zarr_group.attrs["col_report_default"]
@@ -165,6 +165,9 @@ class BaseDataset:
             else:
                 logger.warning("Create a default column report first")
                 return
+                
+        curated_meta = curated_zarr_group.attrs.get(f'version{version}', {})
+        curated_meta['col_edit_schema_exists'] = False
 
         col_edit_schema_path = (BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_col_edit_schema.parquet")
         curated_report_path = (BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_col_report.xlsx")
@@ -178,7 +181,7 @@ class BaseDataset:
         curated_col_report = pd.ExcelFile(curated_report_path)
 
         if col_edit_schema_path.exists():
-            logger.info(f"Column edit schema version{version} already exists.")
+            logger.info(f"Column edit schema version {version} already exists.")
             return
 
         rename_mapping, col_edit_schema = self._col_report.get_col_edit_schema(curated_col_report)
@@ -190,7 +193,12 @@ class BaseDataset:
 
         col_edit_schema.save(path=col_edit_schema_path)
 
+        curated_meta['col_edit_schema_exists'] =  True
+        curated_zarr_group.attrs[f'version{version}'] = curated_meta 
+
     def create_curated_data(self, version=None):
+
+        self._create_col_edit_schema(version=version)
     
         curated_zarr_group = self.zarr_groups['col_report_curated']
         default_zarr_group = self.zarr_groups["col_report_default"]
@@ -209,6 +217,9 @@ class BaseDataset:
         curated_report_path = BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/f"version{version}_col_report_curated.xlsx"
         rename_mapping_path = BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_rename_mapping.yaml"
         default_profiles_path = BaseZARR.get_abs_path(zarr_group=default_zarr_group)/ f"version{version}_col_profile.parquet"
+
+        curated_meta = curated_zarr_group.attrs.get(f'version{version}', {})
+        curated_meta['curated_data_exists'] = False
         
         if not col_edit_schema_path.exists():
             error_msg = f"Column edit schema version {version} not found at: {col_edit_schema_path}. Run create_col_edit_schema(version={version}) first."
@@ -234,3 +245,6 @@ class BaseDataset:
             lock=True,
             password=None,
         )
+
+        curated_meta['curated_data_exists'] =  True
+        curated_zarr_group.attrs[f'version{version}'] = curated_meta 
