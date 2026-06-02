@@ -163,40 +163,25 @@ class BaseDataset:
             if col_report_default_meta["default"]["exists"]:
                 version = col_report_default_meta["default"]["version"]
             else:
-                print("Create a default column report first")
+                logger.warning("Create a default column report first")
                 return
 
-        col_edit_schema_path = (
-            BaseZARR.get_abs_path(curated_zarr_group)
-            / f"version{version}_col_edit_schema.parquet"
-        )
-        curated_report_path = (
-            BaseZARR.get_abs_path(curated_zarr_group)
-            / f"version{version}_col_report.xlsx"
-        )
-        default_profiles_path = (
-            BaseZARR.get_abs_path(zarr_group=default_zarr_group)
-            / f"version{version}_col_profile.parquet"
-        )
+        col_edit_schema_path = (BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_col_edit_schema.parquet")
+        curated_report_path = (BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_col_report.xlsx")
+        rename_mapping_path = (BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_rename_mapping.yaml")
+        default_profiles_path = (BaseZARR.get_abs_path(zarr_group=default_zarr_group)/ f"version{version}_col_profile.parquet")
 
         if not curated_report_path.exists():
-            print(f"Curated column report does not exist at {curated_report_path}")
-            raise FileNotFoundError
+            error_msg = f"Curated column report does not exist at {curated_report_path}"
+            raise FileNotFoundError(error_msg)
 
         curated_col_report = pd.ExcelFile(curated_report_path)
 
         if col_edit_schema_path.exists():
-            print(f"Column edit schema version{version} already exists.")
+            logger.info(f"Column edit schema version{version} already exists.")
             return
 
-        rename_mapping, col_edit_schema = self._col_report.get_col_edit_schema(
-            curated_col_report
-        )
-
-        rename_mapping_path = (
-            BaseZARR.get_abs_path(curated_zarr_group)
-            / f"version{version}_rename_mapping.yaml"
-        )
+        rename_mapping, col_edit_schema = self._col_report.get_col_edit_schema(curated_col_report)
 
         base_yaml.save(data=rename_mapping, path=rename_mapping_path)
 
@@ -204,3 +189,48 @@ class BaseDataset:
         # curated_zarr_group.attrs[f'version{version}'] = curated_version_meta
 
         col_edit_schema.save(path=col_edit_schema_path)
+
+    def create_curated_data(self, version=None):
+    
+        curated_zarr_group = self.zarr_groups['col_report_curated']
+        default_zarr_group = self.zarr_groups["col_report_default"]
+    
+        if version is None:
+            col_report_default_meta = default_zarr_group.attrs['col_report_default']
+            
+            if col_report_default_meta['default']['exists']:
+                version = col_report_default_meta['default']['version']
+            else:
+                logger.warning('Create a default column report first')
+                return
+        
+        col_edit_schema_path =  BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/f"version{version}_col_edit_schema.parquet"
+        curated_profiles_path = BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/f"version{version}_col_profiles.parquet"
+        curated_report_path = BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/f"version{version}_col_report_curated.xlsx"
+        rename_mapping_path = BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_rename_mapping.yaml"
+        default_profiles_path = BaseZARR.get_abs_path(zarr_group=default_zarr_group)/ f"version{version}_col_profile.parquet"
+        
+        if not col_edit_schema_path.exists():
+            error_msg = f"Column edit schema version {version} not found at: {col_edit_schema_path}. Run create_col_edit_schema(version={version}) first."
+            raise FileNotFoundError(error_msg)
+         
+        if curated_profiles_path.exists() and curated_report_path.exists():
+            logger.info(f'Curated data version{version} already exists.')
+            return
+            
+        source_df = self.get_source_df()
+        rename_mapping = base_yaml.load(rename_mapping_path)
+        col_edit_schema = ColEditSchema.load(col_edit_schema_path)
+        col_profiles = self._col_report.load_col_profiles(profiles_path=default_profiles_path)
+    
+        curated_col_profiles = self._col_report._get_curated_col_profiles(col_profiles=col_profiles, col_edit_schema=col_edit_schema)    
+        self._col_report.save_col_profiles(col_profiles=curated_col_profiles, profiles_path=curated_profiles_path)
+        
+        self._col_report._create_col_report(
+            df = self.get_source_df(),
+            col_profiles=curated_col_profiles,
+            report_path=curated_report_path,
+            rename_mapping=rename_mapping,
+            lock=True,
+            password=None,
+        )

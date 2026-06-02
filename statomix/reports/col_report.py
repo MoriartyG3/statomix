@@ -203,6 +203,21 @@ class ColReport:
 
         return col_profiles
 
+    def _get_curated_col_profiles(self, col_profiles, col_edit_schema:ColEditSchema):
+        for col_name, col_edit in col_edit_schema.edits.items():
+            if col_edit.remove:
+                if col_name in col_profiles:
+                    del col_profiles[col_name]
+                    continue
+                    
+            if col_edit.change_col_name is not None:
+                col_profiles[col_name].col_name = col_edit.change_col_name
+        
+            if col_edit.change_datatype is not None:
+                col_profiles[col_name].col_type = col_edit.change_datatype
+    
+        return col_profiles
+
     # def save_col_profiles(self, profiles_path, col_profiles) ->:
 
     #     rows = []
