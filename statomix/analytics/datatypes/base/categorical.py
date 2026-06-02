@@ -1,10 +1,11 @@
+from dataclasses import dataclass, asdict
+
 import pandas as pd
-from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class CategoricalSummary:
-
+    name: str|None
     n: int
 
     missing_n: int
@@ -12,12 +13,12 @@ class CategoricalSummary:
 
     unique_n: int
 
-    mode: str | None
+    mode: str | int | float | None
     mode_count: int | None
     mode_pct: float | None
 
     def to_dict(self) -> dict:
-        return self.__dict__.copy()
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict):
@@ -25,9 +26,6 @@ class CategoricalSummary:
 
 
 class BaseCategorical:
-
-    def __init__(self):
-        pass
 
     @staticmethod
     def get_summary(
@@ -38,9 +36,10 @@ class BaseCategorical:
 
         missing_n = int(series.isna().sum())
 
-        missing_pct = round(
-            (missing_n / samples_n) * 100,
-            2,
+        missing_pct = (
+            round((missing_n / samples_n) * 100, 2)
+            if samples_n > 0
+            else 0.0
         )
 
         series_non_null = series.dropna()
@@ -60,8 +59,7 @@ class BaseCategorical:
 
         counts = series_non_null.value_counts()
 
-        mode = str(counts.index[0])
-
+        mode = counts.index[0]
         mode_count = int(counts.iloc[0])
 
         mode_pct = round(
@@ -70,6 +68,7 @@ class BaseCategorical:
         )
 
         return CategoricalSummary(
+            name=series.name,
             n=n,
             missing_n=missing_n,
             missing_pct=missing_pct,
@@ -83,28 +82,28 @@ class BaseCategorical:
     def get_distribution_df(
         series: pd.Series,
     ) -> pd.DataFrame:
-
+    
         series_non_null = series.dropna()
-
-        counts = series_non_null.value_counts()
-
-        pcts = (
-            series_non_null.value_counts(normalize=True)
+    
+        distribution_df = (
+            series_non_null
+            .value_counts(dropna=False)
+            .rename("count")
+            .reset_index()
+        )
+    
+        distribution_df.columns = ["category", "count"]
+    
+        distribution_df["percentage"] = (
+            distribution_df["count"]
+            / distribution_df["count"].sum()
             * 100
-        )
-
-        summary_df = pd.DataFrame(
-            {
-                "category": counts.index,
-                "count": counts.values,
-                "percentage": pcts.values,
-            }
-        )
-
-        summary_df = (
-            summary_df
-            .sort_values(by="category")
+        ).round(2)
+    
+        distribution_df = (
+            distribution_df
+            .sort_values(by="category", kind="stable")
             .reset_index(drop=True)
         )
-
-        return summary_df
+    
+        return distribution_df
