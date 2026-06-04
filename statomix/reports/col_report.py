@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass
+from collections import defaultdict
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -342,20 +343,25 @@ class ColReport:
         """
         Creates the raw col_report without validation or formatting
         """
-        sheet_map = {
-            datatype: [
-                profile.col_name
-                for profile in col_profiles.values()
-                if profile.col_type == datatype
-            ]
-            for datatype in DataTypes
-        }
+        # datatype_map = {
+        #     datatype: [
+        #         profile.col_name
+        #         for profile in col_profiles.values()
+        #         if profile.col_type == datatype
+        #     ]
+        #     for datatype in DataTypes
+        # }
+
+        datatype_map = defaultdict(list)
+
+        for profile in col_profiles.values():
+            datatype_map[profile.col_type].append(profile.col_name)
 
         # profiled_cols_n = sum(len(col_names) for col_names in sheet_map.values())
         # assert profiled_cols_n == len(df.columns)
 
         with pd.ExcelWriter(path=report_path, engine="openpyxl") as writer:
-            for datatype, col_names in sheet_map.items():
+            for datatype, col_names in datatype_map.items():
                 if not col_names:
                     continue
                 schema = SHEET_CELL_MAP[datatype.value]

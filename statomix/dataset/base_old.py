@@ -107,46 +107,46 @@ class BaseDataset:
         create_new=False,
         password="statomix",
         lock=False,
-        version = None
     ):
         # dataset = self.datasets[dataset_name]
 
         if report_type == "default":
-            default_col_report_group = self.zarr_groups["col_report_default"]
-            default_col_report_meta = default_col_report_group.attrs.get("col_report_default", {})
+            zarr_group = self.zarr_groups["col_report_default"]
+            col_report_default_meta = zarr_group.attrs.get("col_report_default", {})
 
-            if version is None:
+            if "default" not in col_report_default_meta:
+                col_report_default_meta["default"] = {}
+                col_report_default_meta["default"]["exists"] = False
+                col_report_default_meta["default"]["version"] = 0
 
-                if "latest_version" not in default_col_report_meta:
-                    version = 1
-                    default_col_report_meta["latest_version"] = version
-                    default_col_report_meta["version_history"] = []
-                    version_meta = {} 
-                    #default_col_report_meta[f"version{version}"] = {}
-                    version_meta['col_report_exists'] = False
-                else:
-                    version = default_col_report_meta['latest_version']
-                    version_meta = default_col_report_meta[f'version{version}']
+            version = col_report_default_meta["default"]["version"]
+
+            # report_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_report_version{version}.xlsx"
+            # profiles_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_profile_version{version}.parquet"
+
+            if not col_report_default_meta["default"]["exists"]:
+                version = 1
+            elif create_new:
+                version += 1
             else:
-                version_meta = default_col_report_meta[f'version{version}']
-
-
-            if version_meta['col_report_exists'] and not create_new:
                 logger.info(
                     msg=f"{Logger.Emojis.WARN} Default column report version {version} already exists. Set create_new=True to create a new version."
                 )
                 return
-            elif create_new:
-                version += 1
-                version_meta = {}
-                version_meta['col_report_exists'] = False
 
-
-            report_path = (BaseZARR.get_abs_path(zarr_group=default_col_report_group)/ f"version{version}_col_report.xlsx")
-            profiles_path = (BaseZARR.get_abs_path(zarr_group=default_col_report_group)/ f"version{version}_col_profile.parquet")
+            report_path = (
+                BaseZARR.get_abs_path(zarr_group=zarr_group)
+                / f"version{version}_col_report.xlsx"
+            )
+            profiles_path = (
+                BaseZARR.get_abs_path(zarr_group=zarr_group)
+                / f"version{version}_col_profile.parquet"
+            )
 
             col_profiles = self._col_report.create_col_profiles(df=self.get_source_df())
-            self._col_report.save_col_profiles(profiles_path=profiles_path, col_profiles=col_profiles)
+            self._col_report.save_col_profiles(
+                profiles_path=profiles_path, col_profiles=col_profiles
+            )
 
             self._col_report._create_col_report(
                 df=self.get_source_df(),
@@ -157,85 +157,81 @@ class BaseDataset:
                 lock=lock,
             )
 
-            default_col_report_meta["version_history"].append(version)
-            version_meta['col_report_exists'] = True
-            
-            default_col_report_meta["latest_version"] = version
-            default_col_report_meta[f'version{version}'] = version_meta
-            default_col_report_group.attrs['col_report_default'] = default_col_report_meta
+            col_report_default_meta["default"]["version"] = version
+            col_report_default_meta["default"]["exists"] = True
 
-
+            self.zarr_groups["col_report_default"].attrs[
+                "col_report_default"
+            ] = col_report_default_meta
 
     def _create_col_edit_schema(self, version=None):
 
-        default_col_report_group = self.zarr_groups["col_report_default"]
-        default_col_report_meta = default_col_report_group.attrs.get("col_report_default", {})
-
-        curated_col_report_group = self.zarr_groups["col_report_curated"]
-        version_meta = curated_col_report_group.attrs.get(f'version{version}', {})
+        default_zarr_group = self.zarr_groups["col_report_default"]
+        curated_zarr_group = self.zarr_groups["col_report_curated"]
 
         if version is None:
-            version = default_col_report_meta["latest_version"]
-            req_version_meta = default_col_report_meta[f'version{version}']
+            col_report_default_meta = default_zarr_group.attrs["col_report_default"]
 
-            if not req_version_meta['col_report_exists']:
-                print(f"Default column report version {version} does not exist. Create one first.")
+            if col_report_default_meta["default"]["exists"]:
+                version = col_report_default_meta["default"]["version"]
+            else:
+                logger.warning("Create a default column report first")
                 return
-        
-        if not version_meta:
-            version_meta['col_edit_schema_exists'] =  False
+                
+        curated_meta = curated_zarr_group.attrs.get(f'version{version}', {})
+        curated_meta['col_edit_schema_exists'] = False
 
-        col_edit_schema_path = (BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/ f"version{version}_col_edit_schema.parquet")
-        curated_report_path = (BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/ f"version{version}_col_report.xlsx")
-        rename_mapping_path = (BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/ f"version{version}_rename_mapping.yaml")
-        default_profiles_path = (BaseZARR.get_abs_path(zarr_group=default_col_report_group)/ f"version{version}_col_profile.parquet")
+        col_edit_schema_path = (BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_col_edit_schema.parquet")
+        curated_report_path = (BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_col_report.xlsx")
+        rename_mapping_path = (BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_rename_mapping.yaml")
+        default_profiles_path = (BaseZARR.get_abs_path(zarr_group=default_zarr_group)/ f"version{version}_col_profile.parquet")
 
         if not curated_report_path.exists():
-            error_msg = f"Curated column report version {version} does not exist at {curated_report_path}"
+            error_msg = f"Curated column report does not exist at {curated_report_path}"
             raise FileNotFoundError(error_msg)
 
         curated_col_report = pd.ExcelFile(curated_report_path)
 
-        if version_meta['col_edit_schema_exists']:
+        if col_edit_schema_path.exists():
             logger.info(f"Column edit schema version {version} already exists.")
             return
 
         rename_mapping, col_edit_schema = self._col_report.get_col_edit_schema(curated_col_report)
+
         base_yaml.save(data=rename_mapping, path=rename_mapping_path)
+
+        # curated_version_meta['rename_mapping'] = rename_mapping
+        # curated_zarr_group.attrs[f'version{version}'] = curated_version_meta
 
         col_edit_schema.save(path=col_edit_schema_path)
 
-        version_meta['col_edit_schema_exists'] = True
-        curated_col_report_group.attrs[f"version{version}"] = version_meta
+        curated_meta['col_edit_schema_exists'] =  True
+        curated_zarr_group.attrs[f'version{version}'] = curated_meta 
 
     def create_curated_data(self, version=None):
 
         self._create_col_edit_schema(version=version)
-
-        default_col_report_group = self.zarr_groups["col_report_default"]
-        default_col_report_meta = default_col_report_group.attrs.get("col_report_default", {})
-
-        curated_col_report_group = self.zarr_groups["col_report_curated"]
-        version_meta = curated_col_report_group.attrs.get(f'version{version}', {})
-
-        if version is None:
-            version = default_col_report_meta["latest_version"]
-            
-            #version_meta = curated_col_report_meta[f"version{version}"]
-            curated_data_exists = version_meta.get('curated_data_exists', False)
-            if curated_data_exists:
-                print(f"Curated data for version {version} exists.")
-            else:
-                version_meta['curated_data_exists'] =  False
     
-        col_edit_schema_path =  BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/f"version{version}_col_edit_schema.parquet"
-        curated_profiles_path = BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/f"version{version}_col_profiles.parquet"
-        curated_report_path = BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/f"version{version}_col_report_curated.xlsx"
-        rename_mapping_path = BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/ f"version{version}_rename_mapping.yaml"
-        default_profiles_path = BaseZARR.get_abs_path(zarr_group=default_col_report_group)/ f"version{version}_col_profile.parquet"
+        curated_zarr_group = self.zarr_groups['col_report_curated']
+        default_zarr_group = self.zarr_groups["col_report_default"]
+    
+        if version is None:
+            col_report_default_meta = default_zarr_group.attrs['col_report_default']
+            
+            if col_report_default_meta['default']['exists']:
+                version = col_report_default_meta['default']['version']
+            else:
+                logger.warning('Create a default column report first')
+                return
+        
+        col_edit_schema_path =  BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/f"version{version}_col_edit_schema.parquet"
+        curated_profiles_path = BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/f"version{version}_col_profiles.parquet"
+        curated_report_path = BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/f"version{version}_col_report_curated.xlsx"
+        rename_mapping_path = BaseZARR.get_abs_path(zarr_group=curated_zarr_group)/ f"version{version}_rename_mapping.yaml"
+        default_profiles_path = BaseZARR.get_abs_path(zarr_group=default_zarr_group)/ f"version{version}_col_profile.parquet"
 
-        # curated_meta = curated_zarr_group.attrs.get(f'version{version}', {})
-        # curated_meta['curated_data_exists'] = False
+        curated_meta = curated_zarr_group.attrs.get(f'version{version}', {})
+        curated_meta['curated_data_exists'] = False
         
         if not col_edit_schema_path.exists():
             error_msg = f"Column edit schema version {version} not found at: {col_edit_schema_path}. Run create_col_edit_schema(version={version}) first."
@@ -244,7 +240,8 @@ class BaseDataset:
         if curated_profiles_path.exists() and curated_report_path.exists():
             logger.info(f'Curated data version{version} already exists.')
             return
-        
+            
+        source_df = self.get_source_df()
         rename_mapping = base_yaml.load(rename_mapping_path)
         col_edit_schema = ColEditSchema.load(col_edit_schema_path)
         col_profiles = self._col_report.load_col_profiles(profiles_path=default_profiles_path)
@@ -261,5 +258,5 @@ class BaseDataset:
             password=None,
         )
 
-        version_meta['curated_data_exists'] = True
-        curated_col_report_group.attrs[f"version{version}"] = version_meta
+        curated_meta['curated_data_exists'] =  True
+        curated_zarr_group.attrs[f'version{version}'] = curated_meta 
