@@ -224,7 +224,8 @@ class BaseDataset:
             #version_meta = curated_col_report_meta[f"version{version}"]
             curated_data_exists = version_meta.get('curated_data_exists', False)
             if curated_data_exists:
-                print(f"Curated data for version {version} exists.")
+                print(f"Curated data for version {version} aleady exists.")
+                return
             else:
                 version_meta['curated_data_exists'] =  False
     
@@ -263,3 +264,64 @@ class BaseDataset:
 
         version_meta['curated_data_exists'] = True
         curated_col_report_group.attrs[f"version{version}"] = version_meta
+
+    def create_meta_report(self, version=None, sub_version=None):
+    
+        default_col_report_group = self.zarr_groups["col_report_default"]
+        default_col_report_meta = default_col_report_group.attrs.get("col_report_default", {})
+        
+        if version is None:
+            version = default_col_report_meta["latest_version"]
+        
+        curated_col_report_group = self.zarr_groups["col_report_curated"]
+        req_version_meta = curated_col_report_group.attrs.get(f'version{version}', {})
+        
+        if not req_version_meta.get("col_edit_schema_exists", False):
+            print(f"Column edit schema for version {version} does not exist.")
+            return
+        
+        rename_mapping_path = BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/ f"version{version}_rename_mapping.yaml"
+        curated_profiles_path = BaseZARR.get_abs_path(zarr_group=curated_col_report_group)/f"version{version}_col_profiles.parquet"
+        
+        rename_mapping = base_yaml.load(rename_mapping_path)
+        curated_col_profiles = self._col_report.load_col_profiles(profiles_path=curated_profiles_path)
+        
+        default_meta_report_group = self.zarr_groups['meta_report_default']
+        version_meta = default_meta_report_group.attrs.get(f'version{version}', {})
+        
+        if sub_version is None:
+            if 'latest_sub_version' not in version_meta:
+                sub_version = 1
+                version_meta["latest_sub_version"] =  sub_version
+                version_meta["sub_version_history"] = []
+            else:
+                sub_version = version_meta["latest_sub_version"]
+                
+        
+        sub_version_meta = version_meta.get(f"sub_version{sub_version}", {})
+        
+        if sub_version_meta.get("meta_report_exists", False):
+            sub_version_meta['meta_report_exists'] =  False
+
+        if sub_version_meta['meta_report_exists']:
+            print(f"A sub version {sub_version} reporta already exists.")
+            return
+        
+        default_report_path = (
+            BaseZARR.get_abs_path(zarr_group=default_meta_report_group)
+            / f"version{version}_subversion{sub_version}_meta_report.xlsx"
+        )
+        
+        self._meta_report._create_meta_report(
+            df=self.get_source_df(), 
+            col_profiles=curated_col_profiles,
+            rename_mapping=rename_mapping,
+            report_path=default_report_path,
+        )
+    
+        sub_version_meta['meta_report_exists'] = True
+        version_meta["latest_sub_version"] = sub_version
+        version_meta[f"sub_version{sub_version}"] = sub_version_meta
+        version_meta["sub_version_history"].append(sub_version)
+        
+        default_meta_report_group.attrs[f'version{version}'] = version_meta
