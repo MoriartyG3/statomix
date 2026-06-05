@@ -61,9 +61,48 @@ class Reports:
         
         return version_group
 
+    def get_config_version_group(
+        self, config_version, version_group, config_name, create_new
+    ):
+        version_meta = version_group.attrs["meta"]
+    
+        if config_version is None:
+            config_version = version_meta["config"]["latest_version"]
+    
+        if create_new:
+            config_version += 1
+    
+            version_meta["config"]["latest_version"] = config_version
+            version_meta["config"]["version_history"].append(config_version)
+            version_group.attrs["meta"] = version_meta
+            config_version_group = version_group.require_group(
+                f"config_version{config_version}"
+            )
+        else:
+            if config_version == 1:
+                config_version_group = version_group.require_group(
+                    f"config_version{config_version}"
+                )
+            elif f"config_version{config_version}" in version_group:
+                config_version_group = version_group.require_group(
+                    f"config_version{config_version}"
+                )
+            else:
+                error_msg = f"\nReport version {version} not found. Set create_new=True to create a new report.\nLatest version is {self.meta["latest_version"]}"
+                raise FileNotFoundError(error_msg)
+    
+        config_version_meta = config_version_group.attrs.get("meta", {})
+        if "version" not in config_version_meta:
+            config_version_meta["config_version"] = config_version
+            config_version_meta["config_name"] = config_name
+    
+            config_version_group.attrs["meta"] = config_version_meta
+    
+        return config_version_group
+
     def create_col_report(self, df, version=None, create_new=False, version_name=None):
         version_group = self.get_version_group(version=version, version_name=version_name, create_new=create_new)
-        version_meta = version_group.attrs.get("meta", {})
+        version_meta = version_group.attrs["meta"]
         
         base_path = BaseZARR.get_abs_path(zarr_group=version_group)
         col_report_path = base_path/"col_report.xlsx"
@@ -99,11 +138,13 @@ class Reports:
         if not col_report_curated_path.exists():
             error_msg = f"Curated column report does not exist at \n{col_report_curated_path}."
             raise FileNotFoundError(error_msg)
-        
+
+        col_profiles_path = base_path/"col_profiles.parquet"
         rename_mapping_path =  base_path/"rename_mapping.yaml"
         col_edit_schema_path = base_path/"col_edit_schema.parquet"
+        col_profiles_curated_path = base_path/ "col_profiles_curated.parquet"
         
-        if rename_mapping_path.exists() and col_edit_schema_path.exists():
+        if rename_mapping_path.exists() and col_edit_schema_path.exists() and col_profiles_curated_path.exists():
             logger.info(f"Column edit schema already exists.")
             return
         
@@ -113,6 +154,10 @@ class Reports:
         
         base_yaml.save(data=rename_mapping, path=rename_mapping_path)
         col_edit_schema.save(path=col_edit_schema_path)
+
+        col_profiles = self.col_report.load_col_profiles(profiles_path=col_profiles_path)
+        col_profiles_curated = self.col_report.get_curated_col_profiles(col_profiles=col_profiles, col_edit_schema=col_edit_schema)
+        self.col_report.save_col_profiles(col_profiles=col_profiles_curated, profiles_path=col_profiles_curated_path)
         
         version_meta['col_edit_schema_exists'] = True
         version_group.attrs['meta'] = version_meta

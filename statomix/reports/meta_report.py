@@ -15,7 +15,7 @@ class MetaReport:
     def __init__(self):
         pass
 
-    def _create_meta_report(self, df, col_profiles, rename_mapping, report_path):
+    def create_meta_report(self, df, col_profiles, rename_mapping, report_path):
         meta_dfs = self._get_meta_dfs(
             df=df, rename_mapping=rename_mapping, col_profiles=col_profiles
         )

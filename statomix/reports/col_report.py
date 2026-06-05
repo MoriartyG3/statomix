@@ -211,9 +211,13 @@ class ColReport:
 
             col_profiles[col_name] = col_profile
 
+        # rows = [profile.to_dict() for profile in col_profiles.values()]
+        # pd.DataFrame(rows).to_parquet(profiles_path)
+        self.save_col_profiles(col_profiles=col_profiles, profiles_path=profiles_path)
+
+    def save_col_profiles(self, col_profiles, profiles_path):
         rows = [profile.to_dict() for profile in col_profiles.values()]
         pd.DataFrame(rows).to_parquet(profiles_path)
-
 
     def get_curated_col_profiles(self, col_profiles, col_edit_schema:ColEditSchema):
         for col_name, col_edit in col_edit_schema.edits.items():
