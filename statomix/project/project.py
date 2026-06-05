@@ -5,7 +5,7 @@ from pandas.testing import assert_frame_equal
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
 
-from statomix.dataset.base import BaseDataset
+from statomix.dataset.dataset import Dataset
 
 ROOT = Path.cwd() / "multiomix/statomix"
 logger = Logger(name="Project").get_logger()
@@ -36,7 +36,7 @@ class Project:
 
             if df is not None:
                 existing_df = pd.read_parquet(
-                    self.datasets[dataset_name].paths["source_df"]
+                    self.datasets[dataset_name].paths["df"]["source"]
                 )
                 # Note: This check also exists in the BaseDataset._create_source_df() Method
                 existing_df = existing_df.fillna(value=pd.NA)
@@ -62,7 +62,7 @@ class Project:
         project_datasets_meta[dataset_name]["created_successfully"] = False
         self.zarr_groups["root"].attrs["datasets"] = project_datasets_meta
 
-        self.datasets[dataset_name] = BaseDataset(
+        self.datasets[dataset_name] = Dataset(
             df=df,
             dataset_name=dataset_name,
             root_group=self.zarr_groups["datasets_root"],
@@ -83,7 +83,7 @@ class Project:
         if project_datasets_meta:
             for dataset_name, dataset_meta in project_datasets_meta.items():
                 if dataset_meta["created_successfully"]:
-                    self.datasets[dataset_name] = BaseDataset(
+                    self.datasets[dataset_name] = Dataset(
                         df=None,
                         dataset_name=dataset_name,
                         root_group=self.zarr_groups["datasets_root"],

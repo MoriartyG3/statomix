@@ -11,6 +11,10 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from statomix.semantic_rules import DataTypes
 from statomix.col_profiler import ColProfiler, ColProfile
 
+from fileverse.logger import Logger
+
+logger = Logger(name="col_report").get_logger()
+
 SHEET_CELL_MAP = {
     DataTypes.IDENTIFIER.value: {
         "col_name": "A",
@@ -156,22 +160,23 @@ class ColReport:
 
         self.col_profiler = ColProfiler(cat_unique_thresh=4, num_conversion_thresh=95)
 
-    def _create_col_report(
+    def create_col_report(
         self,
         df: pd.DataFrame,
-        col_profiles,
         report_path: Path,
-        # profiles_path: Path,
+        profiles_path: Path,
         password,
         lock,
+        replace,
         rename_mapping=None,
     ):
         assert report_path.suffix == ".xlsx", "report_path should be a .xlsx path."
-        # assert (
-        #     profiles_path.suffix == ".parquet"
-        # ), "profiles_path should be a .parquet path."
+        if report_path.exists() and not replace:
+            logger.warning(f"Column report already exists at:\n{report_path}\nSet replace=True to replace.")
+            return
+            
+        col_profiles = self.load_col_profiles(profiles_path=profiles_path)
 
-        # col_profiles = self.create_col_profiles(df=df)
         self._save_col_report(
             report_path=report_path,
             col_profiles=col_profiles,
@@ -190,7 +195,11 @@ class ColReport:
 
         self._protect_cols(report_path=report_path, password=password, lock=lock)
 
-    def create_col_profiles(self, df):
+    def create_col_profiles(self, df, profiles_path, replace):
+        if profiles_path.exists() and not replace:
+            logger.warning(f"Column profiles exists at:\n{profiles_path}\nSet replace=True to replace.")
+            return
+
         col_profiles: dict[str, ColProfile] = {}
         for col_name in df.columns:
             col_series = df[col_name]
@@ -202,9 +211,11 @@ class ColReport:
 
             col_profiles[col_name] = col_profile
 
-        return col_profiles
+        rows = [profile.to_dict() for profile in col_profiles.values()]
+        pd.DataFrame(rows).to_parquet(profiles_path)
 
-    def _get_curated_col_profiles(self, col_profiles, col_edit_schema:ColEditSchema):
+
+    def get_curated_col_profiles(self, col_profiles, col_edit_schema:ColEditSchema):
         for col_name, col_edit in col_edit_schema.edits.items():
             if col_edit.remove:
                 if col_name in col_profiles:
@@ -218,39 +229,6 @@ class ColReport:
                 col_profiles[col_name].col_type = col_edit.change_datatype
     
         return col_profiles
-
-    # def save_col_profiles(self, profiles_path, col_profiles) ->:
-
-    #     rows = []
-
-    #     for profile in col_profiles.values():
-
-    #         rows.append(
-    #             {
-    #                 "col_name": profile.col_name,
-    #                 "col_type": (
-    #                     profile.col_type.value if profile.col_type is not None else None
-    #                 ),
-    #                 "missing_n": profile.missing_n,
-    #                 "missing_pct": profile.missing_pct,
-    #                 "unique_n": profile.unique_n,
-    #                 "tokens": "|".join(profile.tokens),
-    #                 "normalized_name": profile.normalized_name,
-    #             }
-    #         )
-
-    #     col_profilies_df = pd.DataFrame(rows)
-    #     col_profilies_df.to_parquet(path=profiles_path)
-
-    def save_col_profiles(
-        self,
-        profiles_path: Path,
-        col_profiles: dict[str, ColProfile],
-    ) -> None:
-
-        rows = [profile.to_dict() for profile in col_profiles.values()]
-
-        pd.DataFrame(rows).to_parquet(profiles_path)
 
     def load_col_profiles(
         self,
@@ -266,36 +244,6 @@ class ColReport:
             col_profiles[profile.col_name] = profile
 
         return col_profiles
-
-    # def load_col_profiles(self, profiles_path: Path):
-
-    #     df = pd.read_parquet(profiles_path)
-
-    #     col_profiles = {}
-
-    #     for _, row in df.iterrows():
-
-    #         col_type = DataTypes(row["col_type"]) if pd.notna(row["col_type"]) else None
-
-    #         tokens = (
-    #             row["tokens"].split("|")
-    #             if pd.notna(row["tokens"]) and row["tokens"] != ""
-    #             else []
-    #         )
-
-    #         profile = ColProfile(
-    #             col_name=row["col_name"],
-    #             col_type=col_type,
-    #             missing_n=row["missing_n"],
-    #             missing_pct=row["missing_pct"],
-    #             unique_n=row["unique_n"],
-    #             tokens=tokens,
-    #             normalized_name=row["normalized_name"],
-    #         )
-
-    #         col_profiles[profile.col_name] = profile
-
-    #     return col_profiles
 
     def _format_cell_length(self, report_path):
         workbook = load_workbook(filename=report_path)
@@ -495,41 +443,6 @@ class ColReport:
             validation_category.add(cell.coordinate)
 
         workbook.save(filename=report_path)
-
-    # def _protect_cols(self, report_path, password):
-
-    #     workbook = load_workbook(filename=report_path)
-
-    #     for worksheet in workbook.worksheets:
-
-    #         if worksheet.title == "__ValidationRanges__":
-    #             continue
-
-    #         header_map = {
-    #             cell.column: cell.value
-    #             for cell in worksheet[1]
-    #         }
-
-    #         for row in worksheet.iter_rows(min_row=2):
-
-    #                 for cell in row:
-
-    #                     header_name = header_map[cell.column]
-
-    #                     if header_name in EDITABLE_COL_NAMES:
-    #                         cell.protection = Protection(locked=False)
-
-    #                     else:
-    #                         cell.protection = Protection(locked=True)
-    #         worksheet.auto_filter.ref = worksheet.dimensions
-
-    #         worksheet.protection.sheet = True
-    #         worksheet.protection.password = password
-
-    #         worksheet.protection.sort = True
-    #         worksheet.protection.autoFilter = True
-
-    #     workbook.save(filename=report_path)
 
     def _protect_cols(self, report_path: Path, lock: bool, password: str | None = None):
         workbook = load_workbook(filename=report_path)
