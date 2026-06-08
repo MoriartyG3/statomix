@@ -1,4 +1,5 @@
 import pandas as pd
+from collections import defaultdict
 
 from statomix.reports.col_report import ColReport, ColEditSchema
 from statomix.reports.meta_report import MetaReport, MetaEditSchema
@@ -274,8 +275,10 @@ class Reports:
         col_edit_schema_path = req_base_path / "col_edit_schema.parquet"
         
         if schema_df_path.exists():
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
             logger.info(
-                f"Schema df already exists for, \nversion: {version_group.attrs['meta']['version']}\nconfig_version:{config_version_group.attrs['meta']['config_version']}\n"
+                f"Schema df already exists for version: {version} and config_version:{config_version}"
             )
             return
         
@@ -290,8 +293,45 @@ class Reports:
         for col_name, col_edit in col_edit_schema.edits.items():
             if col_edit.remove:
                 remove_cols.append(col_name)
-        
+                
+        categorical_edits = meta_edit_schema.categorical_edits
+        category_rename_mapping = defaultdict(dict)
+        for col_name, categorical_edit in categorical_edits.items():
+            for category, schema in categorical_edit.items():
+                if schema.category is not None and schema.rename_to is not None:
+                    category_rename_mapping[col_name][schema.category] = schema.rename_to
+                elif schema.remove:
+                    category_rename_mapping[col_name][schema.category] = pd.NA
+                else:
+                    error_msg = f"Column {col_name} has neither a rename mapping nor needs to be removed, still present in schema."
+                    raise ValueError(error_msg)
+
+        # Apply all the changes
         df = df.drop(columns=remove_cols)
         df = df.rename(columns=rename_mapping_swapped)
-        
+        for col_name, category_rename_map in category_rename_mapping.items():
+            df[col_name] = df[col_name].replace(category_rename_map)
+            
         df.to_parquet(path=schema_df_path)
+
+    def get_schema_df(self, version = None, config_version = None):
+        version_group = self.get_version_group(
+            version=version, create_new=False, version_name=None
+        )
+        
+        config_version_group = self.get_config_version_group(
+            config_version=config_version,
+            version_group=version_group,
+            config_name=None,
+            create_new=False,
+        )
+        base_path = BaseZARR.get_abs_path(config_version_group)
+        
+        schema_df_path = base_path / "schema_df.parquet"
+        
+        if not schema_df_path.exists():
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
+            logger.info(f"Schema df for version {version} and config_version {config_version} does not exist.")
+        
+        return pd.read_parquet(schema_df_path)
