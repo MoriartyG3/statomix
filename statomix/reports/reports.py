@@ -1,7 +1,7 @@
 import pandas as pd
 
-from statomix.reports.col_report import ColReport
-from statomix.reports.meta_report import MetaReport
+from statomix.reports.col_report import ColReport, ColEditSchema
+from statomix.reports.meta_report import MetaReport, MetaEditSchema
 
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
@@ -251,3 +251,47 @@ class Reports:
         
         meta_edit_schema = self.meta_report.get_meta_edit_schema(curated_meta_report)
         meta_edit_schema.save(path = meta_edit_schema_path)
+
+
+    def create_schema_df(self, df, version=None, config_version=None):
+    
+        version_group = self.get_version_group(
+            version=version, create_new=False, version_name=None
+        )
+        req_base_path = BaseZARR.get_abs_path(version_group)
+        
+        config_version_group = self.get_config_version_group(
+            config_version=config_version,
+            version_group=version_group,
+            config_name=None,
+            create_new=False,
+        )
+        base_path = BaseZARR.get_abs_path(config_version_group)
+        
+        schema_df_path = base_path / "schema_df.parquet"
+        meta_edit_schema_path = base_path / "meta_schema.xlsx"
+        rename_mapping_path = req_base_path / "rename_mapping.yaml"
+        col_edit_schema_path = req_base_path / "col_edit_schema.parquet"
+        
+        if schema_df_path.exists():
+            logger.info(
+                f"Schema df already exists for, \nversion: {version_group.attrs['meta']['version']}\nconfig_version:{config_version_group.attrs['meta']['config_version']}\n"
+            )
+            return
+        
+        rename_mapping = base_yaml.load(path=rename_mapping_path)
+        col_edit_schema = ColEditSchema.load(path=col_edit_schema_path)
+        meta_edit_schema = MetaEditSchema.load(path=meta_edit_schema_path)
+        
+        
+        rename_mapping_swapped = {v: k for k, v in rename_mapping.items()}
+        
+        remove_cols = []
+        for col_name, col_edit in col_edit_schema.edits.items():
+            if col_edit.remove:
+                remove_cols.append(col_name)
+        
+        df = df.drop(columns=remove_cols)
+        df = df.rename(columns=rename_mapping_swapped)
+        
+        df.to_parquet(path=schema_df_path)
