@@ -12,8 +12,6 @@ class DataTypes(Enum):
     SURVIVAL = "Survival"
     DATETIME = "DateTime"
     FREE_TEXT = "Free Text"
-    # BOOLEAN = "Boolean"
-
 
 @dataclass
 class SemanticRule:
@@ -69,7 +67,7 @@ SEMANTIC_RULES: list[SemanticRule] = [
         },
         score=0.25,
     ),
-    # -----------------------------------------------------
+    # -----------------------------------------------------    CATEGORICAL
     # SURVIVAL TIME
     # -----------------------------------------------------
     SemanticRule(
@@ -161,17 +159,7 @@ SEMANTIC_RULES: list[SemanticRule] = [
         },
         score=0.25,
     ),
-    # -----------------------------------------------------
-    # BOOLEAN
-    # -----------------------------------------------------
-    # SemanticRule(
-    #     semantic_type=DataTypes.BOOLEAN,
-    #     keywords={"flag", "is", "has", "was", "did"},
-    #     score=0.25,
-    # ),
-    # -----------------------------------------------------
-    # FREE TEXT
-    # -----------------------------------------------------
+
     SemanticRule(
         semantic_type=DataTypes.FREE_TEXT,
         keywords={

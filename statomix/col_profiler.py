@@ -28,6 +28,7 @@ class ColProfile:
     col_type: DataTypes | None
     missing_n: int
     missing_pct: float
+    num_conversion_pct: float
     unique_n: int | None
     tokens: list[str]
     normalized_name: str
@@ -45,6 +46,7 @@ class ColProfile:
             "unique_n": self.unique_n,
             "tokens": "|".join(self.tokens),
             "normalized_name": self.normalized_name,
+            "num_conversion_pct": self.num_conversion_pct
         }
 
     @classmethod
@@ -68,6 +70,7 @@ class ColProfile:
             if pd.notna(row["tokens"]) and row["tokens"]
             else [],
             normalized_name=row["normalized_name"],
+            num_conversion_pct = row["num_conversion_pct"],
         )
 
 
@@ -121,6 +124,7 @@ class ColProfiler:
             tokens=col_profile_semantic.tokens,
             missing_n=col_profile_raw.missing_n,
             missing_pct=col_profile_raw.missing_pct,
+            num_conversion_pct=col_profile_raw.num_conversion_pct,
             unique_n=col_profile_raw.unique_n,
         )
 

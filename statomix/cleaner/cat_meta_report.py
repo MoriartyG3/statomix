@@ -36,30 +36,30 @@ class CategoricalEdit:
             remove=bool(data.get("remove", False))
         )
 
+# @dataclass
+# class SurvivalMeta:
+#     label:str
+#     event:str
+#     time:str
+
+#     def to_dict(self):
+#         return {
+#             "label":self.label,
+#             "event":self.event,
+#             "time":self.time,
+#         }
+
+#     def from_dict(data):
+#         return SurvivalMeta(
+#             label=data["label"],
+#             event=data["event"],
+#             time=data["time"],
+#         )
+
 @dataclass
-class SurvivalMeta:
-    label:str
-    event:str
-    time:str
-
-    def to_dict(self):
-        return {
-            "label":self.label,
-            "event":self.event,
-            "time":self.time,
-        }
-
-    def from_dict(data):
-        return SurvivalMeta(
-            label=data["label"],
-            event=data["event"],
-            time=data["time"],
-        )
-
-@dataclass
-class MetaEditSchema:
+class CatMetaEditSchema:
     categorical_edits: dict[str, dict[str, CategoricalEdit]]
-    survival_meta: dict[str, SurvivalMeta]
+    #survival_meta: dict[str, SurvivalMeta]
 
     def save(self, path: Path):
         categorical_rows = []
@@ -67,9 +67,9 @@ class MetaEditSchema:
             for category, categorical_edit in categories.items():
                 categorical_rows.append(categorical_edit.to_dict())
 
-        survival_rows = []
-        for label, survival_meta_object in self.survival_meta.items():
-            survival_rows.append(survival_meta_object.to_dict())
+        # survival_rows = []
+        # for label, survival_meta_object in self.survival_meta.items():
+        #     survival_rows.append(survival_meta_object.to_dict())
 
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
             pd.DataFrame(categorical_rows).to_excel(
@@ -78,24 +78,24 @@ class MetaEditSchema:
                 index=False,
             )
     
-            pd.DataFrame(survival_rows).to_excel(
-                writer,
-                sheet_name="SurvivalMeta",
-                index=False,
-            )
+            # pd.DataFrame(survival_rows).to_excel(
+            #     writer,
+            #     sheet_name="SurvivalMeta",
+            #     index=False,
+            # )
 
     @staticmethod
-    def load(path: Path) -> "MetaEditSchema":
+    def load(path: Path) -> "CatMetaEditSchema":
     
         categorical_df = pd.read_excel(
             path,
             sheet_name="CategoricalEdits"
         )
     
-        survival_df = pd.read_excel(
-            path,
-            sheet_name="SurvivalMeta"
-        )
+        # survival_df = pd.read_excel(
+        #     path,
+        #     sheet_name="SurvivalMeta"
+        # )
     
         categorical_edits: dict[str, dict[str, CategoricalEdit]] = defaultdict(dict)
     
@@ -104,20 +104,20 @@ class MetaEditSchema:
     
             categorical_edits[edit.col_name][edit.category] = edit
     
-        survival_meta: dict[str, SurvivalMeta] = {}
+        # survival_meta: dict[str, SurvivalMeta] = {}
     
-        for _, row in survival_df.iterrows():
-            meta = SurvivalMeta.from_dict(row.to_dict())
+        # for _, row in survival_df.iterrows():
+        #     meta = SurvivalMeta.from_dict(row.to_dict())
     
-            survival_meta[meta.label] = meta
+        #     survival_meta[meta.label] = meta
     
-        return MetaEditSchema(
+        return CatMetaEditSchema(
             categorical_edits=dict(categorical_edits),
-            survival_meta=survival_meta,
+            #survival_meta=survival_meta,
         )
 
 
-class MetaReport:
+class CatMetaReport:
     def __init__(self):
         pass
 
@@ -126,9 +126,11 @@ class MetaReport:
             df=df, rename_mapping=rename_mapping, col_profiles=col_profiles
         )
         self._save_meta_report(meta_dfs=meta_dfs, report_path=report_path)
-        self._add_categorical_validation(report_path=report_path)
-        self._add_survival_validation(report_path=report_path)
-        BaseExcel.protect_cols(file_path=report_path, protected_col_names=["col_name", "category"], lock=True, password = "statomix")
+        #self._add_categorical_validation(report_path=report_path)
+        self._add_categorical_validation(report_path=report_path, worksheet_name="Categorical")
+        #self._add_categorical_validation(report_path=report_path, worksheet_name="Survival Distribution")
+        #self._add_survival_validation(report_path=report_path)
+        BaseExcel.protect_cols(file_path=report_path, protected_col_names=["col_name", "category", "note"], lock=True, password = "statomix")
 
     def _get_meta_dfs(self, df, rename_mapping, col_profiles):
         datatype_map = defaultdict(list)
@@ -142,12 +144,7 @@ class MetaReport:
                 metadata_dfs["Categorical"] = self._get_categorical_meta_df(
                     df=df, col_names=col_names, rename_mapping=rename_mapping
                 )
-
-            elif datatype == DataTypes.SURVIVAL:
-                metadata_dfs["Survival"] = self._get_survival_meta_df(
-                    col_names=col_names
-                )
-
+                
         return metadata_dfs
 
     def _save_meta_report(self, meta_dfs, report_path):
@@ -155,7 +152,8 @@ class MetaReport:
         with pd.ExcelWriter(path=report_path, engine="openpyxl") as writer:
             for df_name, df_meta in meta_dfs.items():
 
-                index = df_name == "Categorical"
+                #index = df_name in {"Categorical", "Survival Distribution"}
+                index = df_name in {"Categorical"}
                 df_meta.to_excel(excel_writer=writer, sheet_name=df_name, index=index)
 
             validation_df = self._get_validation_df()
@@ -167,19 +165,60 @@ class MetaReport:
 
         BaseExcel.format_cell_length(file_path=report_path)
 
-    @staticmethod
-    def _get_survival_meta_df(col_names):
+    # @staticmethod
+    # def _get_survival_meta_df(col_names):
 
-        df = pd.DataFrame(
-            {
-                "col_name": col_names,
-                "type": pd.NA,
-                #"time": pd.NA,
-                "label": pd.NA,
-            }
-        )
+    #     df = pd.DataFrame(
+    #         {
+    #             "col_name": col_names,
+    #             "type": pd.NA,
+    #             #"time": pd.NA,
+    #             "label": pd.NA,
+    #         }
+    #     )
 
-        return df
+    #     return df
+
+    # @staticmethod
+    # def _get_survival_distribution_df(df, col_names, col_profiles, rename_mapping):
+    #     distribution_dfs = []
+    #     rows = []
+    #     for col_name in col_names:
+    #         col_profile = col_profiles[col_name]
+    #         if col_profile.unique_n<10 and col_profile.num_conversion_pct<10:
+    #             target_name = (
+    #                 rename_mapping.get(col_name, col_name) if rename_mapping else col_name
+    #             )
+    #             series = df[target_name]
+    #             distribution_df = BaseCategorical.get_distribution_df(series)
+    #             distribution_df["col_name"] = col_name
+    #             distribution_df["rename_to"] = pd.NA
+    #             distribution_df["remove"] = pd.NA
+    #             distribution_dfs.append(distribution_df)
+    #         else:
+    #             rows.append({
+    #                 'col_name':col_profile.col_name,
+    #                 'note': "Classified as Time"
+    #             })
+    #     final_distribution_df = pd.concat(
+    #         distribution_dfs,
+    #         ignore_index=True,
+    #     )
+    #     final_distribution_df = pd.concat([final_distribution_df, pd.DataFrame(rows)])
+    
+    #     other_cols = [
+    #         c
+    #         for c in final_distribution_df.columns
+    #         if c not in ["col_name", "category", "rename_to", "remove"]
+    #     ]
+    #     ordered_cols = ["col_name", "category", "rename_to", "remove"] + other_cols
+    #     final_distribution_df = final_distribution_df[ordered_cols]
+        
+    #     final_distribution_df = final_distribution_df.set_index(
+    #         ["col_name", "category"]
+    #     )
+        
+    #     return final_distribution_df
 
     @staticmethod
     def _get_categorical_meta_df(df, col_names, rename_mapping):
@@ -226,80 +265,44 @@ class MetaReport:
         # max_len = max(len(dropdown_options), 2)
         # datatypes = dropdown_options + [""] * (max_len - len(dropdown_options))
         boolean = ["True", "False"]  # + [""] * (max_len - 2)
-        survival_type = ["Event", "Time"]
+        #survival_type = ["Event", "Time"]
 
         validation_df = pd.DataFrame(data=
                                      {
                                          "Booleans": boolean, 
-                                         "Survival Type": survival_type,
+                                         #"Survival Type": survival_type,
                                      }
                                     )
 
         return validation_df
-    def _add_survival_validation(self, report_path):
-        
-        workbook = load_workbook(filename=report_path)
-        worksheet = workbook["Survival"]
-        col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
-
-        type_col = col_map["type"]
-        
-        validation_type = DataValidation(
-            type="list",
-            formula1="=__ValidationRanges__!$B$2:$B$3",
-            allow_blank=True,
-            showErrorMessage=True,
-            errorStyle="stop",
-            errorTitle="Invalid Input",
-            error="Please choose only 'Time' or 'Event' from the dropdown list.",
-        )
-
-        worksheet.add_data_validation(validation_type)
-
-        validation_type.add(f"{type_col}2:{type_col}{worksheet.max_row}")
-
-        workbook.save(filename=report_path)
         
     # def _add_survival_validation(self, report_path):
-
+        
     #     workbook = load_workbook(filename=report_path)
     #     worksheet = workbook["Survival"]
     #     col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
-    #     event_col = col_map["event"]
-    #     time_col = col_map["time"]
 
-    #     validation_event = DataValidation(
+    #     type_col = col_map["type"]
+        
+    #     validation_type = DataValidation(
     #         type="list",
-    #         formula1="=__ValidationRanges__!$A$2:$A$3",
+    #         formula1="=__ValidationRanges__!$B$2:$B$3",
     #         allow_blank=True,
     #         showErrorMessage=True,
     #         errorStyle="stop",
     #         errorTitle="Invalid Input",
-    #         error="Please choose only 'True' or 'False' from the dropdown list.",
+    #         error="Please choose only 'Time' or 'Event' from the dropdown list.",
     #     )
 
-    #     validation_time = DataValidation(
-    #         type="list",
-    #         formula1="=__ValidationRanges__!$A$2:$A$3",
-    #         allow_blank=True,
-    #         showErrorMessage=True,
-    #         errorStyle="stop",
-    #         errorTitle="Invalid Input",
-    #         error="Please choose only 'True' or 'False' from the dropdown list.",
-    #     )
+    #     worksheet.add_data_validation(validation_type)
 
-    #     worksheet.add_data_validation(validation_event)
-    #     worksheet.add_data_validation(validation_time)
-
-    #     validation_event.add(f"{event_col}2:{event_col}{worksheet.max_row}")
-
-    #     validation_time.add(f"{time_col}2:{time_col}{worksheet.max_row}")
+    #     validation_type.add(f"{type_col}2:{type_col}{worksheet.max_row}")
 
     #     workbook.save(filename=report_path)
-
-    def _add_categorical_validation(self, report_path):
+        
+    def _add_categorical_validation(self, report_path, worksheet_name):
         workbook = load_workbook(filename=report_path)
-        worksheet = workbook["Categorical"]
+        worksheet = workbook[worksheet_name]
 
         col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
 
@@ -347,30 +350,31 @@ class MetaReport:
     
         return edits
     
-    @staticmethod
-    def _get_survival_meta(survival_meta_df):
+    # @staticmethod
+    # def _get_survival_meta(survival_meta_df):
     
-        survival_meta :dict[str, SurvivalMeta] = {}
-        for label, group in survival_meta_df.groupby('label'):
-            time = group[group['type'] == 'Time']['col_name'].item()
-            event = group[group['type'] == 'Event']['col_name'].item()
+    #     survival_meta :dict[str, SurvivalMeta] = {}
+    #     for label, group in survival_meta_df.groupby('label'):
+    #         time = group[group['type'] == 'Time']['col_name'].item()
+    #         event = group[group['type'] == 'Event']['col_name'].item()
         
-            survival_meta[label] =  SurvivalMeta(
-                label=label,
-                time=time,
-                event=event
-            )
+    #         survival_meta[label] =  SurvivalMeta(
+    #             label=label,
+    #             time=time,
+    #             event=event
+    #         )
     
-        return survival_meta
+    #     return survival_meta
 
     def get_meta_edit_schema(self, curated_meta_report):
     
         categorical_meta_df = curated_meta_report.parse(sheet_name='Categorical', index_col=[0, 1])
         categorical_edits = self._get_categorical_edits(categorical_meta_df=categorical_meta_df)
     
-        survival_meta_df = curated_meta_report.parse(sheet_name='Survival')
-        survival_meta = self._get_survival_meta(survival_meta_df=survival_meta_df)
+        # survival_meta_df = curated_meta_report.parse(sheet_name='Survival')
+        # survival_meta = self._get_survival_meta(survival_meta_df=survival_meta_df)
     
-        return MetaEditSchema(categorical_edits=categorical_edits, survival_meta=survival_meta)
+        #return MetaEditSchema(categorical_edits=categorical_edits, survival_meta=survival_meta)
+        return CatMetaEditSchema(categorical_edits=categorical_edits)
 
     
