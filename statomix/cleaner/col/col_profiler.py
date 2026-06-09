@@ -2,7 +2,7 @@ import re
 import pandas as pd
 from dataclasses import dataclass
 
-from .semantic_rules import (
+from .col_semantic_rules import (
     DataTypes,
     DATETIME_REGEX,
     IDENTIFIER_REGEX,

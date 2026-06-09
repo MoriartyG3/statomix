@@ -1,8 +1,8 @@
 import pandas as pd
 from collections import defaultdict
 
-from statomix.cleaner.col_report import ColReport, ColEditSchema
-from statomix.cleaner.cat_meta_report import CatMetaReport, CatMetaEditSchema
+from .col.col_report import ColReport, ColEditSchema
+from .cat_meta_report import CatMetaReport, CatMetaEditSchema
 
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
@@ -210,17 +210,17 @@ class Cleaner:
         rename_mapping_path = req_base_path / "rename_mapping.yaml"
         rename_mapping = base_yaml.load(path=rename_mapping_path)
 
-        cat_meta_report_path = base_path / "cat_meta_report.xlsx"
+        meta_report_path = base_path / "cat_meta_report.xlsx"
 
-        if cat_meta_report_path.exists():
-            logger.info(f"Categorical metadata report already exists at \n{cat_meta_report_path}")
+        if meta_report_path.exists():
+            logger.info(f"Categorical metadata report already exists at \n{meta_report_path}")
             return
 
         self.cat_meta_report.create_meta_report(
             df=df,
             col_profiles=col_profiles_curated,
             rename_mapping=rename_mapping,
-            report_path=cat_meta_report_path,
+            report_path=meta_report_path,
         )
 
         config_version_meta["cat_meta_report_exists"] = True
@@ -242,7 +242,7 @@ class Cleaner:
         config_version_meta = config_version_group.attrs["meta"]
     
         base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
-        meta_edit_schema_path = base_path/"cat_meta_edit_schema.xlsx"
+        meta_edit_schema_path = base_path/"cat_meta_edit_schema.parquet"
     
         if meta_edit_schema_path.exists():
             version = version_group.attrs['meta']['version']

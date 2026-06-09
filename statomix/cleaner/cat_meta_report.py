@@ -8,9 +8,10 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from fileverse.formats.excel import BaseExcel
 
-from statomix.semantic_rules import DataTypes
 from statomix.analytics.datatypes.base.numerical import BaseNumerical
 from statomix.analytics.datatypes.base.categorical import BaseCategorical
+
+from .col.col_semantic_rules import DataTypes
 
 @dataclass
 class CategoricalEdit:
@@ -67,16 +68,18 @@ class CatMetaEditSchema:
             for category, categorical_edit in categories.items():
                 categorical_rows.append(categorical_edit.to_dict())
 
+        pd.DataFrame(categorical_rows).to_parquet(path=path)
+
         # survival_rows = []
         # for label, survival_meta_object in self.survival_meta.items():
         #     survival_rows.append(survival_meta_object.to_dict())
 
-        with pd.ExcelWriter(path, engine="openpyxl") as writer:
-            pd.DataFrame(categorical_rows).to_excel(
-                writer,
-                sheet_name="CategoricalEdits",
-                index=False,
-            )
+        # with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        #     pd.DataFrame(categorical_rows).to_excel(
+        #         writer,
+        #         sheet_name="CategoricalEdits",
+        #         index=False,
+        #     )
     
             # pd.DataFrame(survival_rows).to_excel(
             #     writer,

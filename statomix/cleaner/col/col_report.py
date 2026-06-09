@@ -8,8 +8,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, Protection, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from statomix.semantic_rules import DataTypes
-from statomix.col_profiler import ColProfiler, ColProfile
+from .col_semantic_rules import DataTypes
+from .col_profiler import ColProfiler, ColProfile
 
 from fileverse.logger import Logger
 
