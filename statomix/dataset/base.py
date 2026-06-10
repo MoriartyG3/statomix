@@ -25,6 +25,14 @@ class BaseDataset:
         self.paths['df'] = {}
         self.paths['df']['source'] = BaseZARR.get_abs_path(zarr_group=self.zarr_groups["df"])/"source_df.parquet"
 
+    def _get_source_df(self):
+        source_df_path = self.paths['df']['source']
+        if source_df_path.exists():
+            return pd.read_parquet(source_df_path)
+        else:
+            error_msg = f"Source dataframe does not exists at:\n{source_df_path}"
+            raise FileNotFoundError()
+            
     def _create_source_df(self, df: pd.DataFrame | None):
         source_df_path = self.paths['df']['source']
 

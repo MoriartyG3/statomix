@@ -1,8 +1,12 @@
 import pandas as pd
+from pathlib import Path
 from collections import defaultdict
 
+from .surv.surv_report import SurvMetaReport
 from .col.col_report import ColReport, ColEditSchema
+from .col.col_semantic_rules import DataTypes
 from .cat_meta_report import CatMetaReport, CatMetaEditSchema
+
 
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
@@ -13,7 +17,11 @@ logger = Logger(name="BaseDataset").get_logger()
 
 
 class Cleaner:
-    def __init__(self, root_group):
+    def __init__(self, df_path:Path, root_group):
+
+        assert df_path.suffix == ".parquet", "df_path should be a .parquet path."
+        
+        self.df_path = df_path
         self.root_group = root_group
         self.meta = self.root_group.attrs.get("meta", {})
 
@@ -24,6 +32,7 @@ class Cleaner:
 
         self.col_report = ColReport()
         self.cat_meta_report = CatMetaReport()
+        self.surv_meta_report = SurvMetaReport()
 
     def _save_meta(self):
         self.root_group.attrs["meta"] = self.meta
@@ -102,7 +111,7 @@ class Cleaner:
 
         return config_version_group
 
-    def create_col_report(self, df, version=None, create_new=False, version_name=None):
+    def create_col_report(self, version=None, create_new=False, version_name=None):
         version_group = self.get_version_group(
             version=version, version_name=version_name, create_new=create_new
         )
@@ -117,6 +126,8 @@ class Cleaner:
             )
             return
 
+        df = pd.read_parquet(self.df_path)
+        
         self.col_report.create_col_profiles(
             df=df, profiles_path=col_profiles_path, replace=create_new
         )
@@ -184,7 +195,7 @@ class Cleaner:
         version_group.attrs["meta"] = version_meta
 
     def create_cat_meta_report(
-        self, df, version=None, config_version=None, config_name=None, create_new=False
+        self, version=None, config_version=None, config_name=None, create_new=False
     ):
 
         version_group = self.get_version_group(
@@ -215,7 +226,9 @@ class Cleaner:
         if meta_report_path.exists():
             logger.info(f"Categorical metadata report already exists at \n{meta_report_path}")
             return
-
+        
+        df = pd.read_parquet(self.df_path)
+        
         self.cat_meta_report.create_meta_report(
             df=df,
             col_profiles=col_profiles_curated,
@@ -256,6 +269,80 @@ class Cleaner:
         meta_edit_schema = self.cat_meta_report.get_meta_edit_schema(curated_meta_report)
         meta_edit_schema.save(path = meta_edit_schema_path)
 
+    def create_surv_meta_report(self, version=None, config_version=None):
+    
+        version_group = self.get_version_group(
+            version=version, create_new=False, version_name=None
+        )
+        req_base_path = BaseZARR.get_abs_path(zarr_group=version_group)
+        
+        config_version_group = self.get_config_version_group(
+            config_version=config_version,
+            version_group=version_group,
+            config_name=None,
+            create_new=False
+        )
+        base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
+
+        surv_profiles_path = base_path/ "surv_profiles.parquet"
+        meta_report_path = base_path / "surv_meta_report.xlsx"
+
+        if surv_profiles_path.exists() and meta_report_path.exists():
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
+            logger.info(f"Survival metadata report already exists for version: {version} and config_version:{config_version}")
+            return
+        
+        col_profiles_path = req_base_path/"col_profiles_curated.parquet"
+        col_profiles = self.col_report.load_col_profiles(profiles_path=col_profiles_path)
+        
+        # rename_mapping_path = req_base_path / "rename_mapping.yaml"
+        # rename_mapping = BaseYAML.load(path=rename_mapping_path)
+            
+        datatype_map = defaultdict(list)
+        for profile in col_profiles.values():
+            datatype_map[profile.col_type].append(profile.col_name)
+        col_names = datatype_map[DataTypes.SURVIVAL]
+        
+        self.surv_meta_report.create_surv_report(col_names=col_names, report_path=meta_report_path, profiles_path=surv_profiles_path)
+
+    def create_surv_meta_edit_schema(self, version=None, config_version=None):
+    
+        version_group = self.get_version_group(
+            version=version, create_new=False, version_name=None
+        )
+        req_base_path = BaseZARR.get_abs_path(zarr_group=version_group)
+        
+        config_version_group = self.get_config_version_group(
+            config_version=config_version,
+            version_group=version_group,
+            config_name=None,
+            create_new=False
+        )
+        base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
+        
+        surv_pairs_path = base_path/"surv_pairs.parquet"
+        surv_profiles_path = base_path/ "surv_profiles.parquet"
+        surv_profiles_curated_path = base_path/"surv_profiles_curated.parquet"
+        
+        meta_report_path = base_path / "surv_meta_report.xlsx"
+        meta_edit_schema_path = base_path/"surv_meta_edit_schema.parquet"
+        meta_report_curated_path = base_path / "surv_meta_report_curated.xlsx"
+        
+        surv_profiles = self.surv_meta_report.load_semantic_profiles(profiles_path=surv_profiles_path)
+        curated_meta_report = pd.ExcelFile(meta_report_curated_path)
+        
+        meta_edit_schema = self.surv_meta_report.get_surv_edit_schema(curated_meta_report=curated_meta_report)
+        meta_edit_schema.save(path=meta_edit_schema_path)
+        
+        surv_profiles_curated = self.surv_meta_report.get_curated_surv_profiles(meta_edit_schema=meta_edit_schema, surv_profiles=surv_profiles)
+        self.surv_meta_report.save_semantic_profiles(semantic_profiles=surv_profiles_curated, profiles_path=surv_profiles_curated_path)
+        
+        surv_meta_df = curated_meta_report.parse(sheet_name="SurvMeta")
+        surv_pairs = self.surv_meta_report.get_surv_paris(surv_meta_df =surv_meta_df ,surv_profiles=surv_profiles_curated)
+        surv_pairs.save(path=surv_pairs_path)
+
+        
     # def create_meta_edit_schema(self, version=None, config_version=None):
     #     version_group = self.get_version_group(
     #             version=version, create_new=False, version_name=None

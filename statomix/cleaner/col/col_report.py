@@ -204,12 +204,12 @@ class ColReport:
         for col_name in df.columns:
             col_series = df[col_name]
 
-            col_profile = self.col_profiler.get_col_profile(
+            col_profiles[col_name] = self.col_profiler.get_col_profile(
                 col_name=col_name,
                 col_series=col_series,
             )
 
-            col_profiles[col_name] = col_profile
+            #col_profiles[col_name] = col_profile
 
         # rows = [profile.to_dict() for profile in col_profiles.values()]
         # pd.DataFrame(rows).to_parquet(profiles_path)

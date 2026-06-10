@@ -12,9 +12,12 @@ logger = Logger(name="Project").get_logger()
 
 
 class Project:
-    def __init__(self, project_name: str):
+    def __init__(self, project_name: str):#, project_dir = None):
         self.project_name = project_name
-        self._zarr_storage = BaseZARR(path=ROOT / f"{self.project_name}")
+
+        project_path = ROOT / f"{self.project_name}"
+
+        self._zarr_storage = BaseZARR(path=project_path)
         self.zarr_groups = {}
         self.zarr_groups["root"] = self._zarr_storage.root_group
 
