@@ -7,11 +7,14 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from fileverse.formats.excel import BaseExcel
 
+from statomix.cleaner.cat_meta_report import CatMetaReport
+
 from .surv_profiler import (
     get_survival_sematic_col_profile,
     SurvivalDataTypes,
     SurvivalSemanticProfile,
 )
+
 
 @dataclass
 class SurvEdit:
@@ -72,10 +75,11 @@ class SurvEditSchema:
 
         return cls(edits=edits)
 
+
 @dataclass
 class SurvPair:
-    surv_label:str
-    event_profile:SurvivalSemanticProfile
+    surv_label: str
+    event_profile: SurvivalSemanticProfile
     time_profile: SurvivalSemanticProfile
 
     def to_dict(self):
@@ -89,13 +93,10 @@ class SurvPair:
     def from_dict(cls, data):
         return cls(
             surv_label=data["surv_label"],
-            event_profile=SurvivalSemanticProfile.from_dict(
-                data["event_profile"]
-            ),
-            time_profile=SurvivalSemanticProfile.from_dict(
-                data["time_profile"]
-            ),
+            event_profile=SurvivalSemanticProfile.from_dict(data["event_profile"]),
+            time_profile=SurvivalSemanticProfile.from_dict(data["time_profile"]),
         )
+
 
 @dataclass
 class SurvPairs:
@@ -118,7 +119,6 @@ class SurvPairs:
             pairs[pair.surv_label] = pair
 
         return cls(pairs=pairs)
-
 
 
 class SurvMetaReport:
@@ -158,7 +158,8 @@ class SurvMetaReport:
         rows = [profile.to_dict() for profile in semantic_profiles.values()]
         pd.DataFrame(rows).to_parquet(profiles_path)
 
-    def load_semantic_profiles(self, profiles_path: Path):
+    @staticmethod
+    def load_semantic_profiles(profiles_path: Path):
         df = pd.read_parquet(profiles_path)
 
         semantic_profiles: dict[str, SurvivalSemanticProfile] = {}
@@ -294,40 +295,40 @@ class SurvMetaReport:
 
     @staticmethod
     def get_curated_surv_profiles(meta_edit_schema, surv_profiles):
-    
+
         for col_name, surv_edit in meta_edit_schema.edits.items():
             if surv_edit.remove:
                 if col_name in surv_profiles:
                     del surv_profiles[col_name]
                     continue
-            
+
             if surv_edit.change_datatype is not None:
                 surv_profiles[col_name].col_type = surv_edit.change_datatype
-    
+
         return surv_profiles
 
     @staticmethod
     def get_surv_paris(surv_meta_df, surv_profiles):
-    
+
         pairs: dict[str, SurvPair] = {}
-        
+
         required_types = {
             SurvivalDataTypes.EVENT.value,
             SurvivalDataTypes.TIME.value,
         }
-        
+
         for surv_label, surv_group in surv_meta_df.groupby("survival_label"):
             if not surv_label:
                 continue
-        
+
             if len(surv_group) != 2:
                 raise ValueError(
                     f"Survival label '{surv_label}' must have exactly 2 rows, "
                     f"found {len(surv_group)}."
                 )
-        
+
             found_types = set(surv_group["inferred_datatype"])
-        
+
             if found_types != required_types:
                 raise ValueError(
                     f"Survival label '{surv_label}' must contain exactly one "
@@ -335,25 +336,89 @@ class SurvMetaReport:
                     f"'{SurvivalDataTypes.TIME.value}' row. "
                     f"Found: {sorted(found_types)}."
                 )
-            
+
             group_by_type = surv_group.set_index("inferred_datatype")
-        
+
             event_col = group_by_type.at[
                 SurvivalDataTypes.EVENT.value,
                 "col_name",
             ]
-        
+
             time_col = group_by_type.at[
                 SurvivalDataTypes.TIME.value,
                 "col_name",
             ]
-        
+
             pairs[surv_label] = SurvPair(
                 surv_label=surv_label,
                 event_profile=surv_profiles[event_col],
                 time_profile=surv_profiles[time_col],
             )
-        
+
         surv_pairs = SurvPairs(pairs=pairs)
-    
+
         return surv_pairs
+
+    @staticmethod
+    def save_cat_meta_report(df, rename_mapping, report_path, profiles_path):
+        semantic_profiles = SurvMetaReport.load_semantic_profiles(
+            profiles_path=profiles_path
+        )
+        cat_col_names = []
+        for col_name, semantic_profile in semantic_profiles.items():
+            if semantic_profile.col_type == SurvivalDataTypes.EVENT:
+                cat_col_names.append(col_name)
+
+        surv_cat_meta_df = CatMetaReport._get_categorical_meta_df(
+            df=df, col_names=cat_col_names, rename_mapping=rename_mapping
+        )
+
+        writer = pd.ExcelWriter(path=report_path, engine="openpyxl")
+
+        surv_cat_meta_df.to_excel(excel_writer=writer, sheet_name="SurvCatMeta")
+
+        validation_df = SurvMetaReport._get_validation_df()
+        validation_df.to_excel(
+            excel_writer=writer, sheet_name="__ValidationRanges__", index=False
+        )
+        writer.sheets["__ValidationRanges__"].sheet_state = "veryHidden"
+        writer.close()
+
+    @staticmethod
+    def _add_surv_cat_validation(report_path):
+        workbook = load_workbook(filename=report_path)
+        worksheet = workbook["SurvCatMeta"]
+
+        col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
+
+        validation_remove = DataValidation(
+            type="list",
+            formula1=f"=__ValidationRanges__!$C$2:$C$3",
+            allow_blank=True,
+            showErrorMessage=True,
+            errorStyle="stop",
+            errorTitle="Invalid Datatype",
+            error="You must select an option from the provided drop-down menu.",
+        )
+        worksheet.add_data_validation(validation_remove)
+        validation_remove.add(
+            f"{col_map["remove"]}2:{col_map["remove"]}{worksheet.max_row}"
+        )
+        workbook.save(filename=report_path)
+
+    def create_cat_meta_report(self, df, rename_mapping, profiles_path, report_path):
+        self.save_cat_meta_report(
+            df=df,
+            rename_mapping=rename_mapping,
+            profiles_path=profiles_path,
+            report_path=report_path,
+        )
+
+        BaseExcel.format_cell_length(file_path=report_path)
+        self._add_surv_cat_validation(report_path=report_path)
+        BaseExcel.protect_cols(
+            file_path=report_path,
+            protected_col_names=["col_name", "category", "count", "percentage"],
+            password="statomix",
+            lock=True,
+        )

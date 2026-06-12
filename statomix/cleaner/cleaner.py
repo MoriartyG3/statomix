@@ -121,8 +121,9 @@ class Cleaner:
         col_report_path = base_path / "col_report.xlsx"
         col_profiles_path = base_path / "col_profiles.parquet"
         if col_report_path.exists() and not create_new:
+            version = version_group.attrs['meta']['version']
             logger.info(
-                f"Column report version {version_meta['version']} already exists. Set create_new=True to create a new one."
+                f"Column report already exists for version {version}. Set create_new=True to create a new one."
             )
             return
 
@@ -170,7 +171,10 @@ class Cleaner:
             and col_edit_schema_path.exists()
             and col_profiles_curated_path.exists()
         ):
-            logger.info(f"Column edit schema already exists.")
+            version = version_group.attrs['meta']['version']
+            # config_version = config_version_group.attrs['meta']['config_version']
+            # # logger.info(f"Categorical metadata edit schema already exists for version: {version} and config_version:{config_version}")
+            logger.info(f"Column edit schema already exists for version {version}.")
             return
 
         curated_col_report = pd.ExcelFile(col_report_curated_path)
@@ -224,7 +228,10 @@ class Cleaner:
         meta_report_path = base_path / "cat_meta_report.xlsx"
 
         if meta_report_path.exists():
-            logger.info(f"Categorical metadata report already exists at \n{meta_report_path}")
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
+            # logger.info(f"Categorical metadata edit schema already exists for version: {version} and config_version:{config_version}")
+            logger.info(f"Categorical metadata report already exists for version: {version} and config_version:{config_version}")
             return
         
         df = pd.read_parquet(self.df_path)
@@ -328,6 +335,12 @@ class Cleaner:
         meta_report_path = base_path / "surv_meta_report.xlsx"
         meta_edit_schema_path = base_path/"surv_meta_edit_schema.parquet"
         meta_report_curated_path = base_path / "surv_meta_report_curated.xlsx"
+
+        if surv_pairs_path.exists() and surv_profiles_curated_path.exists() and meta_edit_schema_path.exists():
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
+            logger.info(f"Surival meta data already exists for version:{version} and config_version:{config_version}")
+            return
         
         surv_profiles = self.surv_meta_report.load_semantic_profiles(profiles_path=surv_profiles_path)
         curated_meta_report = pd.ExcelFile(meta_report_curated_path)

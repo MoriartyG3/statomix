@@ -90,10 +90,12 @@ class CatMetaEditSchema:
     @staticmethod
     def load(path: Path) -> "CatMetaEditSchema":
     
-        categorical_df = pd.read_excel(
-            path,
-            sheet_name="CategoricalEdits"
-        )
+        # categorical_df = pd.read_excel(
+        #     path,
+        #     sheet_name="CategoricalEdits"
+        # )
+        
+        categorical_df = pd.read_parquet(path=path)
     
         # survival_df = pd.read_excel(
         #     path,
