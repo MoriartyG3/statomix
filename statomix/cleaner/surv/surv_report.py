@@ -1,13 +1,14 @@
 import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass
+from collections import defaultdict
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from fileverse.formats.excel import BaseExcel
 
-from statomix.cleaner.cat_meta_report import CatMetaReport
+from statomix.cleaner.cat_meta_report import CatMetaReport, CatMetaEditSchema
 
 from .surv_profiler import (
     get_survival_sematic_col_profile,
@@ -15,7 +16,126 @@ from .surv_profiler import (
     SurvivalSemanticProfile,
 )
 
+@dataclass
+class SurvCatEdit:
+    col_name:str
+    category:str
+    rename_to:str
+    remove:bool
 
+    def to_dict(self):
+        return {
+            "col_name":self.col_name,
+            "category":self.category,
+            "rename_to":self.rename_to,
+            "remove":self.remove
+        }
+
+    @staticmethod
+    def from_dict(data:dict):
+        return CategoricalEdit(
+            col_name=data["col_name"],
+            category=data["category"],
+            rename_to=data.get("rename_to") if pd.notna(data.get("rename_to")) else None,
+            remove=bool(data.get("remove", False))
+        )
+
+
+@dataclass
+class SurvCatMetaEditSchema:
+    cat_edits: dict[str, dict[str, SurvCatEdit]]
+
+    def save(self, path: Path):
+        cat_rows = []
+        for col_name, categories in self.cat_edits.items():
+            for category, cat_edit in categories.items():
+                cat_rows.append(cat_edit.to_dict())
+
+        pd.DataFrame(cat_rows).to_parquet(path=path)
+
+    @staticmethod
+    def load(path: Path) -> "SurvCatMetaEditSchema":
+           
+        cat_df = pd.read_parquet(path=path)
+        
+        cat_edits: dict[str, dict[str, SurvCatEdit]] = defaultdict(dict)
+    
+        for _, row in cat_df.iterrows():
+            edit = SurvCatEdit.from_dict(row.to_dict())
+    
+            cat_edits[edit.col_name][edit.category] = edit
+    
+        return SurvCatMetaEditSchema(
+            cat_edits=dict(cat_edits),
+        )
+        
+
+@dataclass
+class SurvCatEdit:
+    col_name:str
+    category:str
+    rename_to:str
+    remove:bool
+
+    def to_dict(self):
+        return {
+            "col_name":self.col_name,
+            "category":self.category,
+            "rename_to":self.rename_to,
+            "remove":self.remove
+        }
+
+    @staticmethod
+    def from_dict(data:dict):
+        return SurvCatEdit(
+            col_name=data["col_name"],
+            category=data["category"],
+            rename_to=data.get("rename_to") if pd.notna(data.get("rename_to")) else None,
+            remove=bool(data.get("remove", False))
+        )
+
+@dataclass
+class CatMetaEditSchema:
+    categorical_edits: dict[str, dict[str, SurvCatEdit]]
+
+    def save(self, path: Path):
+        categorical_rows = []
+        for col_name, categories in self.categorical_edits.items():
+            for category, categorical_edit in categories.items():
+                categorical_rows.append(categorical_edit.to_dict())
+
+        pd.DataFrame(categorical_rows).to_parquet(path=path)
+
+    @staticmethod
+    def load(path: Path) -> "CatMetaEditSchema":
+    
+        categorical_df = pd.read_parquet(path=path)
+    
+        # survival_df = pd.read_excel(
+        #     path,
+        #     sheet_name="SurvivalMeta"
+        # )
+    
+        categorical_edits: dict[str, dict[str, CategoricalEdit]] = defaultdict(dict)
+    
+        for _, row in categorical_df.iterrows():
+            edit = CategoricalEdit.from_dict(row.to_dict())
+    
+            categorical_edits[edit.col_name][edit.category] = edit
+    
+        # survival_meta: dict[str, SurvivalMeta] = {}
+    
+        # for _, row in survival_df.iterrows():
+        #     meta = SurvivalMeta.from_dict(row.to_dict())
+    
+        #     survival_meta[meta.label] = meta
+    
+        return CatMetaEditSchema(
+            categorical_edits=dict(categorical_edits),
+            #survival_meta=survival_meta,
+        )
+
+        
 @dataclass
 class SurvEdit:
     col_name: str
@@ -369,7 +489,7 @@ class SurvMetaReport:
             if semantic_profile.col_type == SurvivalDataTypes.EVENT:
                 cat_col_names.append(col_name)
 
-        surv_cat_meta_df = CatMetaReport._get_categorical_meta_df(
+        surv_cat_meta_df = CatMetaReport._get_cat_meta_df(
             df=df, col_names=cat_col_names, rename_mapping=rename_mapping
         )
 
@@ -422,3 +542,35 @@ class SurvMetaReport:
             password="statomix",
             lock=True,
         )
+
+    @staticmethod
+    def _get_surv_cat_edits(surv_cat_meta_df):
+        edits: dict[str, SurvCatEdit] = defaultdict(dict)
+        for (col_name, category) , row in surv_cat_meta_df.iterrows():
+            rename_to=None
+            if pd.notna(row['rename_to']):
+                new_name = str(row['rename_to']).strip()
+                if new_name:
+                    rename_to = new_name
+            
+            remove=False
+            if pd.notna(row['remove']):
+                remove=bool(row['remove'])
+            
+            if not (remove or rename_to is not None):
+                continue
+        
+            edits[col_name][category] = SurvCatEdit(
+                col_name=col_name,
+                category=category,
+                rename_to=rename_to,
+                remove=remove
+            )
+    
+        return edits
+
+    def get_surv_cat_meta_edit_schema(self, curated_meta_report):
+        surv_cat_meta_df = curated_meta_report.parse(sheet_name="SurvCatMeta", index_col=[0,1])
+        surv_cat_edits = self._get_surv_cat_edits(surv_cat_meta_df=surv_cat_meta_df)
+        
+        return SurvCatMetaEditSchema(cat_edits=surv_cat_edits)

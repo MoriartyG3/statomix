@@ -355,6 +355,65 @@ class Cleaner:
         surv_pairs = self.surv_meta_report.get_surv_paris(surv_meta_df =surv_meta_df ,surv_profiles=surv_profiles_curated)
         surv_pairs.save(path=surv_pairs_path)
 
+    def create_surv_cat_meta_report(self, version = None, config_version = None):
+    
+        version_group = self.get_version_group(
+            version=version, create_new=False, version_name=None
+        )
+        req_base_path = BaseZARR.get_abs_path(version_group)
+        
+        config_version_group = self.get_config_version_group(
+            config_version=config_version,
+            version_group=version_group,
+            config_name=None,
+            create_new=False,
+        )
+        base_path = BaseZARR.get_abs_path(config_version_group)
+    
+        profiles_path = base_path/"surv_profiles_curated.parquet"
+        meta_report_path = base_path/"surv_cat_meta_report.xlsx"
+        
+        rename_mapping_path = req_base_path / "rename_mapping.yaml"
+        col_profiles_path = req_base_path/"col_profiles_curated.parquet"
+
+        rename_mapping = BaseYAML.load(path=rename_mapping_path)
+        col_profiles = self.col_report.load_col_profiles(profiles_path=col_profiles_path)
+    
+        if meta_report_path.exists():
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
+            logger.info(f"Survival categorical metadata report already exists for version: {version} and config_version:{config_version}")
+            return
+            
+        df = pd.read_parquet(self.df_path)
+        self.surv_meta_report.create_cat_meta_report(df=df, rename_mapping=rename_mapping, profiles_path=profiles_path , report_path=meta_report_path)
+
+    def create_surv_cat_meta_edit_schema(self, version=None, config_version=None):
+        version_group = self.get_version_group(
+            version=version, create_new=False, version_name=None
+        )
+        req_base_path = BaseZARR.get_abs_path(version_group)
+        
+        config_version_group = self.get_config_version_group(
+            config_version=config_version,
+            version_group=version_group,
+            config_name=None,
+            create_new=False,
+        )
+        base_path = BaseZARR.get_abs_path(config_version_group)
+    
+        meta_report_curated_path = base_path/"surv_cat_meta_report_curated.xlsx"
+        meta_edit_schema_path = base_path/"surv_cat_meta_edit_schema.parquet"
+        if meta_edit_schema_path.exists():
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
+            logger.info(f"Survival categorical metadata edit schema already exists for version: {version} and config_version:{config_version}")
+            return
+            
+        curated_meta_report = pd.ExcelFile(meta_report_curated_path)
+    
+        meta_edit_schema = self.surv_meta_report.get_surv_cat_meta_edit_schema(curated_meta_report=curated_meta_report)
+        meta_edit_schema.save(path=meta_edit_schema_path)
         
     # def create_meta_edit_schema(self, version=None, config_version=None):
     #     version_group = self.get_version_group(
