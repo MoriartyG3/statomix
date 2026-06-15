@@ -1,35 +1,17 @@
-import pandas as pd
-
-from fileverse.formats.zarr import BaseZARR
-
-from statomix.cleaner.col.col_report import ColReport
-from statomix.cleaner.surv.surv_report import SurvPairs
+from .base import BaseAna
 
 
 class Analyzer:
-    def __init__(self, root_group, data_group):
-        self.root_group = root_group
-        self.data_group = data_group
-        self._create_paths()
+    def __init__(self, root_group):
+        self.root_group = root_group 
+        self.group_analyzers = {}
 
-    def _create_paths(self):
-        self.paths = {}
+    def create_group_analyzer(self, data_group, group_name="default"):
+        if "default" in self.group_analyzers:
+            print(f"default group already in group_analyzers")
+            return
 
-        base_path = BaseZARR.get_abs_path(self.data_group)
-
-        self.paths["df"] = base_path / "df.parquet"
-        self.paths["surv_pairs"] = base_path / "surv_pairs.parquet"
-        self.paths["col_profiles"] = base_path / "col_profiles.parquet"
-
-    def _get_df(self):
-        return pd.read_parquet(path=self.paths["df"])
-
-    def _get_col_profiles(self):
-        return ColReport.load_col_profiles(profiles_path=self.paths["col_profiles"])
-
-    def _get_surv_pairs(self):
-        if self.paths["surv_pairs"].exists():
-            return SurvPairs.load(path=self.paths["surv_pairs"])
-        else:
-            error_msg = f"Survival Pairs do not exists for the given dataset"
-            raise FileExistsError(error_msg)
+        self.group_analyzers[group_name] =  GroupAnalyzer(data_group = data_group)
+        
+    
+        
