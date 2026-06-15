@@ -19,6 +19,7 @@ class BaseDataset:
         self.zarr_groups["root"] = root_group.require_group(self.dataset_name)
         self.zarr_groups["df"] = self.zarr_groups["root"].require_group("df")
         self.zarr_groups["cleaner"] = self.zarr_groups["root"].require_group("cleaner")
+        self.zarr_groups["analyzer"] = self.zarr_groups["root"].require_group("analyzer")
 
     def _create_paths(self):
         self.paths = {}

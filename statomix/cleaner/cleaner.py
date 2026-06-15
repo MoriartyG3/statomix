@@ -2,18 +2,16 @@ import pandas as pd
 from pathlib import Path
 from collections import defaultdict
 
-from .surv.surv_report import SurvMetaReport
-from .col.col_report import ColReport, ColEditSchema
 from .col.col_semantic_rules import DataTypes
+from .col.col_report import ColReport, ColEditSchema
 from .cat_meta_report import CatMetaReport, CatMetaEditSchema
-
+from .surv.surv_report import SurvMetaReport, SurvPairs, SurvCatMetaEditSchema
 
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
 from fileverse.formats.yaml import BaseYAML
 
-base_yaml = BaseYAML()
-logger = Logger(name="BaseDataset").get_logger()
+logger = Logger(name="Cleaner").get_logger()
 
 
 class Cleaner:
@@ -174,7 +172,7 @@ class Cleaner:
             version = version_group.attrs['meta']['version']
             # config_version = config_version_group.attrs['meta']['config_version']
             # # logger.info(f"Categorical metadata edit schema already exists for version: {version} and config_version:{config_version}")
-            logger.info(f"Column edit schema already exists for version {version}.")
+            logger.info(f"Column edit schema already exists for version:{version}.")
             return
 
         curated_col_report = pd.ExcelFile(col_report_curated_path)
@@ -182,7 +180,7 @@ class Cleaner:
             curated_col_report=curated_col_report
         )
 
-        base_yaml.save(data=rename_mapping, path=rename_mapping_path)
+        BaseYAML.save(data=rename_mapping, path=rename_mapping_path)
         col_edit_schema.save(path=col_edit_schema_path)
 
         col_profiles = self.col_report.load_col_profiles(
@@ -223,7 +221,7 @@ class Cleaner:
         )
 
         rename_mapping_path = req_base_path / "rename_mapping.yaml"
-        rename_mapping = base_yaml.load(path=rename_mapping_path)
+        rename_mapping = BaseYAML.load(path=rename_mapping_path)
 
         meta_report_path = base_path / "cat_meta_report.xlsx"
 
@@ -231,7 +229,7 @@ class Cleaner:
             version = version_group.attrs['meta']['version']
             config_version = config_version_group.attrs['meta']['config_version']
             # logger.info(f"Categorical metadata edit schema already exists for version: {version} and config_version:{config_version}")
-            logger.info(f"Categorical metadata report already exists for version: {version} and config_version:{config_version}")
+            logger.info(f"Categorical metadata report already exists for version:{version} and config_version:{config_version}")
             return
         
         df = pd.read_parquet(self.df_path)
@@ -414,7 +412,134 @@ class Cleaner:
     
         meta_edit_schema = self.surv_meta_report.get_surv_cat_meta_edit_schema(curated_meta_report=curated_meta_report)
         meta_edit_schema.save(path=meta_edit_schema_path)
+
+
+    def create_curated_data(self, version=None, config_version=None):
+        version_group = self.get_version_group(
+            version=version, create_new=False, version_name=None
+        )
+        req_base_path = BaseZARR.get_abs_path(version_group)
         
+        config_version_group = self.get_config_version_group(
+            config_version=config_version,
+            version_group=version_group,
+            config_name=None,
+            create_new=False,
+        )
+        base_path = BaseZARR.get_abs_path(config_version_group)
+    
+        curated_data_group = config_version_group.require_group("curated_data")
+        curated_base_path = BaseZARR.get_abs_path(curated_data_group)
+        
+        curated_df_path = curated_base_path / "df.parquet"
+        curated_surv_pairs_path =  curated_base_path/"surv_pairs.parquet"
+        curated_col_profiles_path =  curated_base_path/"col_profiles.parquet"
+
+        if curated_df_path.exists() and curated_surv_pairs_path.exists() and curated_col_profiles_path.exists():
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
+            logger.info(f"Curated data already exists for version:{version} and config_version:{config_version}")
+            return
+            
+        curated_data_meta = curated_data_group.attrs.get("meta", {})
+        curated_data_meta["curated_data_exists"] =  False
+        
+        surv_pairs_path = base_path/"surv_pairs.parquet"
+        rename_mapping_path = req_base_path / "rename_mapping.yaml"
+        col_edit_schema_path = req_base_path / "col_edit_schema.parquet"
+        cat_meta_edit_schema_path = base_path/"cat_meta_edit_schema.parquet"
+        col_profiles_curated_path =  req_base_path/"col_profiles_curated.parquet"
+        surv_cat_meta_edit_schema_path = base_path/"surv_cat_meta_edit_schema.parquet"
+        
+    
+        rename_mapping = BaseYAML.load(path=rename_mapping_path)
+        rename_mapping_swapped = {v: k for k, v in rename_mapping.items()}
+        
+        col_edit_schema = ColEditSchema.load(path=col_edit_schema_path)
+        
+        remove_cols = []
+        for col_name, col_edit in col_edit_schema.edits.items():
+            if col_edit.remove:
+                remove_cols.append(col_name)
+    
+        cat_meta_edit_schema = CatMetaEditSchema.load(cat_meta_edit_schema_path)
+        
+        cat_meta_edits = cat_meta_edit_schema.cat_edits
+        
+        cat_rename_mapping = defaultdict(dict)
+        for col_name, cat_edit in cat_meta_edits.items():
+            for category, schema in cat_edit.items():
+                if schema.category is not None and schema.rename_to is not None:
+                    cat_rename_mapping[col_name][schema.category] = schema.rename_to
+                elif schema.remove:
+                    cat_rename_mapping[col_name][schema.category] = pd.NA
+                else:
+                    error_msg = f"Column {col_name} has neither a rename mapping nor needs to be removed, still present in schema."
+                    raise ValueError(error_msg)
+        
+        surv_cat_meta_edit_schema = SurvCatMetaEditSchema.load(path=surv_cat_meta_edit_schema_path)
+        
+        surv_cat_meta_edits =  surv_cat_meta_edit_schema.cat_edits
+        
+        surv_cat_rename_mapping = defaultdict(dict)
+        for col_name, surv_cat_edit in surv_cat_meta_edits.items():
+            for category, schema in surv_cat_edit.items():
+                if schema.category is not None and schema.rename_to is not None:
+                    surv_cat_rename_mapping[col_name][schema.category] = schema.rename_to
+                elif schema.remove:
+                    surv_cat_rename_mapping[col_name][schema.category] = pd.NA
+                else:
+                    error_msg = f"Column {col_name} has neither a rename mapping nor needs to be removed, still present in schema."
+                    raise ValueError(error_msg)
+        
+        
+        surv_pairs = SurvPairs.load(path=surv_pairs_path)
+        
+        col_profiles_curated = self.col_report.load_col_profiles(profiles_path=col_profiles_curated_path)
+        
+        # Apply all the changes
+        df = pd.read_parquet(path = self.df_path)
+        
+        df = df.drop(columns=remove_cols)
+        df = df.rename(columns=rename_mapping_swapped)
+        
+        for col_name, cat_rename_map in cat_rename_mapping.items():
+            df[col_name] = df[col_name].replace(cat_rename_map)
+        
+        for col_name, surv_cat_remame_map in surv_cat_rename_mapping.items():
+            df[col_name] = df[col_name].replace(surv_cat_remame_map)
+        
+        df.to_parquet(path=curated_df_path)
+        surv_pairs.save(path=curated_surv_pairs_path)
+        self.col_report.save_col_profiles(col_profiles=col_profiles_curated, profiles_path=curated_col_profiles_path)
+
+        curated_data_meta["curated_data_exists"] =  True
+        curated_data_group.attrs["meta"] = curated_data_meta 
+
+
+    def get_curated_data_group(self, version=None, config_version=None):
+        version_group = self.get_version_group(
+            version=version, create_new=False, version_name=None
+        )
+    
+        config_version_group = self.get_config_version_group(
+            config_version=config_version,
+            version_group=version_group,
+            config_name=None,
+            create_new=False,
+        )
+    
+        curated_data_group = config_version_group.require_group("curated_data")
+        curated_data_meta = curated_data_group.attrs.get("meta", {})
+    
+        if not curated_data_meta['curated_data_exists']:
+            version = version_group.attrs['meta']['version']
+            config_version = config_version_group.attrs['meta']['config_version']
+            logger.info(f"Curated group does not exist for version:{version} and config_version:{config_version}")
+            return
+        else:
+            return curated_data_group
+            
     # def create_meta_edit_schema(self, version=None, config_version=None):
     #     version_group = self.get_version_group(
     #             version=version, create_new=False, version_name=None

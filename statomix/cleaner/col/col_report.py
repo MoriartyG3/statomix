@@ -219,7 +219,8 @@ class ColReport:
         rows = [profile.to_dict() for profile in col_profiles.values()]
         pd.DataFrame(rows).to_parquet(profiles_path)
 
-    def get_curated_col_profiles(self, col_profiles, col_edit_schema:ColEditSchema):
+    @staticmethod
+    def get_curated_col_profiles(col_profiles, col_edit_schema:ColEditSchema):
         for col_name, col_edit in col_edit_schema.edits.items():
             if col_edit.remove:
                 if col_name in col_profiles:
@@ -234,8 +235,8 @@ class ColReport:
     
         return col_profiles
 
+    @staticmethod
     def load_col_profiles(
-        self,
         profiles_path: Path,
     ) -> dict[str, ColProfile]:
 
