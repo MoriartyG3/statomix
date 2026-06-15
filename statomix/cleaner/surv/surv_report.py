@@ -428,7 +428,7 @@ class SurvMetaReport:
         return surv_profiles
 
     @staticmethod
-    def get_surv_paris(surv_meta_df, surv_profiles):
+    def get_surv_pairs(surv_meta_df, surv_profiles):
 
         pairs: dict[str, SurvPair] = {}
 

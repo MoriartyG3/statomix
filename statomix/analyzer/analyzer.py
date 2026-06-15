@@ -1,4 +1,4 @@
-from .base import BaseAna
+from .group_analyzer import GroupAnalyzer
 
 
 class Analyzer:

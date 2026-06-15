@@ -350,7 +350,7 @@ class Cleaner:
         self.surv_meta_report.save_semantic_profiles(semantic_profiles=surv_profiles_curated, profiles_path=surv_profiles_curated_path)
         
         surv_meta_df = curated_meta_report.parse(sheet_name="SurvMeta")
-        surv_pairs = self.surv_meta_report.get_surv_paris(surv_meta_df =surv_meta_df ,surv_profiles=surv_profiles_curated)
+        surv_pairs = self.surv_meta_report.get_surv_pairs(surv_meta_df =surv_meta_df ,surv_profiles=surv_profiles_curated)
         surv_pairs.save(path=surv_pairs_path)
 
     def create_surv_cat_meta_report(self, version = None, config_version = None):

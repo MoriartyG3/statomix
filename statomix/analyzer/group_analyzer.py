@@ -1,9 +1,13 @@
 import pandas as pd
+from collections import defaultdict
 
 from fileverse.formats.zarr import BaseZARR
 
 from statomix.cleaner.col.col_report import ColReport
 from statomix.cleaner.surv.surv_report import SurvPairs
+
+from statomix.analytics.datatypes.base.numerical import BaseNumerical
+from statomix.analytics.datatypes.base.categorical import BaseCategorical
 
 class GroupAnalyzer:
     def __init__(self, data_group):
@@ -31,3 +35,57 @@ class GroupAnalyzer:
         else:
             error_msg = f"Survival Pairs do not exists for the given dataset"
             raise FileExistsError(error_msg)
+
+    def _get_datatype_map(self):
+        col_profiles = self._get_col_profiles()
+    
+        datatype_map = defaultdict(list)
+        for profile in col_profiles.values():
+            datatype_map[profile.col_type].append(profile.col_name)
+    
+        return datatype_map
+
+    @staticmethod
+    def get_cat_summary_df(df, col_names):
+        distribution_dfs = []
+        for col_name in col_names:
+            series = df[col_name]
+            distribution_df = BaseCategorical.get_distribution_df(series=series)
+            distribution_df["col_name"] = col_name
+            distribution_dfs.append(distribution_df)
+        
+        final_distribution_df = pd.concat(
+            distribution_dfs,
+            ignore_index=True,
+        )
+        
+        final_distribution_df = final_distribution_df.set_index(
+            ["col_name", "category"]
+        )
+        return final_distribution_df
+    
+    @staticmethod
+    def get_num_summary_df(df, col_names):
+        num_dicts = []
+        for col_name in col_names:
+            series = df[col_name]
+            num_dicts.append(BaseNumerical.get_summary(series=series).to_dict())
+        
+        num_summary_df = pd.DataFrame(data=num_dicts)
+    
+        return num_summary_df
+
+    def create_summary_report(self, path):
+    
+        df = self._get_df()
+        datatype_map = self._get_datatype_map()
+        
+        cat_summary_df = self.get_cat_summary_df(df=df, col_names=datatype_map[DataTypes.CATEGORICAL])
+        num_summary_df = self.get_num_summary_df(df=df, col_names=datatype_map[DataTypes.NUMERICAL])
+    
+        writer = pd.ExcelWriter(path=path, engine="openpyxl")
+        cat_summary_df.to_excel(excel_writer=writer, index=True, sheet_name="Categorical")
+        num_summary_df.to_excel(excel_writer=writer, index=False, sheet_name="Numerical")
+        writer.close()
+        
+        BaseExcel.format_cell_length(file_path=path)
