@@ -11,18 +11,21 @@ from statomix.analytics.datatypes.base.numerical import BaseNumerical
 from statomix.analytics.datatypes.base.categorical import BaseCategorical
 
 class GroupAnalyzer:
-    def __init__(self, data_group):
-        self.data_group = data_group
-        self._create_paths()
+    def __init__(self, paths:dict):
+        self.paths = paths
+        
+    # def __init__(self, data_group):
+    #     self.data_group = data_group
+    #     self._create_paths()
 
-    def _create_paths(self):
-        self.paths = {}
+    # def _create_paths(self):
+    #     self.paths = {}
 
-        base_path = BaseZARR.get_abs_path(self.data_group)
+    #     base_path = BaseZARR.get_abs_path(self.data_group)
 
-        self.paths["df"] = base_path / "df.parquet"
-        self.paths["surv_pairs"] = base_path / "surv_pairs.parquet"
-        self.paths["col_profiles"] = base_path / "col_profiles.parquet"
+    #     self.paths["df"] = base_path / "df.parquet"
+    #     self.paths["surv_pairs"] = base_path / "surv_pairs.parquet"
+    #     self.paths["col_profiles"] = base_path / "col_profiles.parquet"
         
     def _get_df(self):
         return pd.read_parquet(path=self.paths["df"])
