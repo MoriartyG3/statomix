@@ -4,7 +4,7 @@ import re
 import pandas as pd
 from dataclasses import dataclass
 
-from statomix.cleaner.col.col_profiler import ColProfiler
+from statomix.pipelines.cleaner.col.col_profiler import ColProfiler
 
 #from .col_semantic_rules import DataTypes, DATETIME_REGEX
 from .surv_semantic_rules import (

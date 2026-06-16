@@ -12,6 +12,7 @@ from .col_semantic_rules import DataTypes
 from .col_profiler import ColProfiler, ColProfile
 
 from fileverse.logger import Logger
+from fileverse.formats.excel import BaseExcel
 
 logger = Logger(name="col_report").get_logger()
 
@@ -165,8 +166,6 @@ class ColReport:
         df: pd.DataFrame,
         report_path: Path,
         profiles_path: Path,
-        password,
-        lock,
         replace,
         rename_mapping=None,
     ):
@@ -175,14 +174,14 @@ class ColReport:
             logger.warning(f"Column report already exists at:\n{report_path}\nSet replace=True to replace.")
             return
             
-        col_profiles = self.load_col_profiles(profiles_path=profiles_path)
+        col_profiles = self.load_col_profiles(path=profiles_path)
 
         self._save_col_report(
-            report_path=report_path,
+            path=report_path,
             col_profiles=col_profiles,
             rename_mapping=rename_mapping,
         )
-        self._format_cell_length(report_path=report_path)
+        BaseExcel.format_cell_length(path=report_path)
         self._add_validation_datatype(report_path=report_path)
 
         for datatype in DataTypes:
@@ -193,11 +192,11 @@ class ColReport:
                 rename_mapping=rename_mapping,
             )
 
-        self._protect_cols(report_path=report_path, password=password, lock=lock)
+        self._protect_cols(report_path=report_path, password="statomix", lock=True)
 
-    def create_col_profiles(self, df, profiles_path, replace):
-        if profiles_path.exists() and not replace:
-            logger.warning(f"Column profiles exists at:\n{profiles_path}\nSet replace=True to replace.")
+    def create_col_profiles(self, df, path, replace):
+        if path.exists() and not replace:
+            logger.warning(f"Column profiles exists at:\n{path}\nSet replace=True to replace.")
             return
 
         col_profiles: dict[str, ColProfile] = {}
@@ -213,11 +212,11 @@ class ColReport:
 
         # rows = [profile.to_dict() for profile in col_profiles.values()]
         # pd.DataFrame(rows).to_parquet(profiles_path)
-        self.save_col_profiles(col_profiles=col_profiles, profiles_path=profiles_path)
+        self.save_col_profiles(col_profiles=col_profiles, path=path)
 
-    def save_col_profiles(self, col_profiles, profiles_path):
+    def save_col_profiles(self, col_profiles, path):
         rows = [profile.to_dict() for profile in col_profiles.values()]
-        pd.DataFrame(rows).to_parquet(profiles_path)
+        pd.DataFrame(rows).to_parquet(path)
 
     @staticmethod
     def get_curated_col_profiles(col_profiles, col_edit_schema:ColEditSchema):
@@ -237,10 +236,10 @@ class ColReport:
 
     @staticmethod
     def load_col_profiles(
-        profiles_path: Path,
+        path: Path,
     ) -> dict[str, ColProfile]:
 
-        df = pd.read_parquet(profiles_path)
+        df = pd.read_parquet(path)
 
         col_profiles: dict[str, ColProfile] = {}
 
@@ -250,36 +249,36 @@ class ColReport:
 
         return col_profiles
 
-    def _format_cell_length(self, report_path):
-        workbook = load_workbook(filename=report_path)
+    # def _format_cell_length(self, report_path):
+    #     workbook = load_workbook(filename=report_path)
 
-        # Create a reusable alignment object (Memory efficient!)
-        center_align = Alignment(horizontal="center", vertical="center")
+    #     # Create a reusable alignment object (Memory efficient!)
+    #     center_align = Alignment(horizontal="center", vertical="center")
 
-        for worksheet in workbook.worksheets:
-            # 1. Bold the header row
-            for cell in worksheet[1]:
-                cell.font = Font(bold=True)
+    #     for worksheet in workbook.worksheets:
+    #         # 1. Bold the header row
+    #         for cell in worksheet[1]:
+    #             cell.font = Font(bold=True)
 
-            # 2. Loop through every column exactly once
-            for column_cells in worksheet.columns:
-                max_length = 0
+    #         # 2. Loop through every column exactly once
+    #         for column_cells in worksheet.columns:
+    #             max_length = 0
 
-                # Look at every single cell in this specific column
-                for cell in column_cells:
-                    # Apply the centering alignment
-                    cell.alignment = center_align
+    #             # Look at every single cell in this specific column
+    #             for cell in column_cells:
+    #                 # Apply the centering alignment
+    #                 cell.alignment = center_align
 
-                    # Calculate the text length for the width adjuster
-                    if cell.value is not None:
-                        max_length = max(max_length, len(str(cell.value)))
+    #                 # Calculate the text length for the width adjuster
+    #                 if cell.value is not None:
+    #                     max_length = max(max_length, len(str(cell.value)))
 
-                # Apply the final adjusted width to the column letter
-                adjusted_width = max_length + 4
-                column_letter = get_column_letter(column_cells[0].column)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
+    #             # Apply the final adjusted width to the column letter
+    #             adjusted_width = max_length + 4
+    #             column_letter = get_column_letter(column_cells[0].column)
+    #             worksheet.column_dimensions[column_letter].width = adjusted_width
 
-        workbook.save(filename=report_path)
+    #     workbook.save(filename=report_path)
 
     def _get_validation_df(self):
         dropdown_options = [datatype.value for datatype in DataTypes]
@@ -292,7 +291,7 @@ class ColReport:
 
         return validation_df
 
-    def _save_col_report(self, report_path, col_profiles, rename_mapping=None):
+    def _save_col_report(self, path, col_profiles, rename_mapping=None):
         """
         Creates the raw col_report without validation or formatting
         """
@@ -313,7 +312,7 @@ class ColReport:
         # profiled_cols_n = sum(len(col_names) for col_names in sheet_map.values())
         # assert profiled_cols_n == len(df.columns)
 
-        with pd.ExcelWriter(path=report_path, engine="openpyxl") as writer:
+        with pd.ExcelWriter(path=path, engine="openpyxl") as writer:
             for datatype, col_names in datatype_map.items():
                 if not col_names:
                     continue

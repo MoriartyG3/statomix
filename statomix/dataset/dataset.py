@@ -1,6 +1,6 @@
-from statomix.cleaner.cleaner import Cleaner
 from statomix.dataset.base import BaseDataset
-from statomix.analyzer.analyzer import Analyzer
+from statomix.pipelines.cleaner.cleaner import Cleaner
+from statomix.pipelines.analyzer.analyzer import Analyzer
 
 class Dataset(BaseDataset):
     def __init__(self, dataset_name, root_group, df = None):

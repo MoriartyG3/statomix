@@ -15,9 +15,9 @@ class Project:
     def __init__(self, project_name: str):#, project_dir = None):
         self.project_name = project_name
 
-        project_path = ROOT / f"{self.project_name}"
+        path = ROOT / f"{self.project_name}"
 
-        self._zarr_storage = BaseZARR(path=project_path)
+        self._zarr_storage = BaseZARR(path=path)
         self.zarr_groups = {}
         self.zarr_groups["root"] = self._zarr_storage.root_group
 

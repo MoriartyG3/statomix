@@ -78,7 +78,7 @@ class CatMetaReport:
         )
         self._save_meta_report(meta_dfs=meta_dfs, report_path=report_path)
         self._add_categorical_validation(report_path=report_path, worksheet_name="Categorical")
-        BaseExcel.protect_cols(file_path=report_path, protected_col_names=["col_name", "category", "note"], lock=True, password = "statomix")
+        BaseExcel.protect_cols(path=report_path, protected_col_names=["col_name", "category", "note"], lock=True, password = "statomix")
 
     def _get_meta_dfs(self, df, rename_mapping, col_profiles):
         datatype_map = defaultdict(list)
@@ -111,7 +111,7 @@ class CatMetaReport:
 
             writer.sheets["__ValidationRanges__"].sheet_state = "veryHidden"
 
-        BaseExcel.format_cell_length(file_path=report_path)
+        BaseExcel.format_cell_length(path=report_path)
 
 
     @staticmethod

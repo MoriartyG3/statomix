@@ -2,9 +2,10 @@ import pandas as pd
 from collections import defaultdict
 
 from fileverse.formats.zarr import BaseZARR
+from fileverse.formats.excel import BaseExcel
 
-from statomix.cleaner.col.col_report import ColReport
-from statomix.cleaner.surv.surv_report import SurvPairs
+from statomix.pipelines.cleaner.surv.surv_report import SurvPairs
+from statomix.pipelines.cleaner.col.col_report import ColReport, DataTypes
 
 from statomix.analytics.datatypes.base.numerical import BaseNumerical
 from statomix.analytics.datatypes.base.categorical import BaseCategorical
@@ -27,7 +28,7 @@ class GroupAnalyzer:
         return pd.read_parquet(path=self.paths["df"])
 
     def _get_col_profiles(self):
-        return ColReport.load_col_profiles(profiles_path=self.paths["col_profiles"])
+        return ColReport.load_col_profiles(path=self.paths["col_profiles"])
 
     def _get_surv_pairs(self):
         if self.paths["surv_pairs"].exists():
@@ -84,8 +85,8 @@ class GroupAnalyzer:
         num_summary_df = self.get_num_summary_df(df=df, col_names=datatype_map[DataTypes.NUMERICAL])
     
         writer = pd.ExcelWriter(path=path, engine="openpyxl")
-        cat_summary_df.to_excel(excel_writer=writer, index=True, sheet_name="Categorical")
         num_summary_df.to_excel(excel_writer=writer, index=False, sheet_name="Numerical")
+        cat_summary_df.to_excel(excel_writer=writer, index=True, sheet_name="Categorical")
         writer.close()
         
-        BaseExcel.format_cell_length(file_path=path)
+        BaseExcel.format_cell_length(path=path)

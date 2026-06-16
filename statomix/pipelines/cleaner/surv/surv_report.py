@@ -8,7 +8,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from fileverse.formats.excel import BaseExcel
 
-from statomix.cleaner.cat_meta_report import CatMetaReport, CatMetaEditSchema
+from statomix.pipelines.cleaner.cat_meta_report import CatMetaReport, CatMetaEditSchema
 
 from .surv_profiler import (
     get_survival_sematic_col_profile,
@@ -247,40 +247,40 @@ class SurvMetaReport:
 
     def create_surv_report(self, col_names, report_path, profiles_path):
 
-        self.create_semantic_profiles(col_names=col_names, profiles_path=profiles_path)
-        semantic_profiles = self.load_semantic_profiles(profiles_path=profiles_path)
+        self.create_semantic_profiles(col_names=col_names, path=profiles_path)
+        semantic_profiles = self.load_semantic_profiles(path=profiles_path)
 
         self.save_col_report(
-            report_path=report_path,
+            path=report_path,
             col_names=col_names,
             semantic_profiles=semantic_profiles,
         )
 
-        BaseExcel.format_cell_length(file_path=report_path)
+        BaseExcel.format_cell_length(path=report_path)
         self._add_validation_datatype(report_path=report_path)
         BaseExcel.protect_cols(
-            file_path=report_path,
+            path=report_path,
             protected_col_names=["col_name", "inferred_datatype"],
             password="statomix",
             lock=True,
         )
 
-    def create_semantic_profiles(self, col_names, profiles_path):
+    def create_semantic_profiles(self, col_names, path):
         semantic_profiles: dict[str, SurvivalSemanticProfile] = {}
         for col_name in col_names:
             semantic_profiles[col_name] = get_survival_sematic_col_profile(col_name)
 
         self.save_semantic_profiles(
-            semantic_profiles=semantic_profiles, profiles_path=profiles_path
+            semantic_profiles=semantic_profiles, path=path
         )
 
-    def save_semantic_profiles(self, semantic_profiles, profiles_path):
+    def save_semantic_profiles(self, semantic_profiles, path):
         rows = [profile.to_dict() for profile in semantic_profiles.values()]
-        pd.DataFrame(rows).to_parquet(profiles_path)
+        pd.DataFrame(rows).to_parquet(path)
 
     @staticmethod
-    def load_semantic_profiles(profiles_path: Path):
-        df = pd.read_parquet(profiles_path)
+    def load_semantic_profiles(path: Path):
+        df = pd.read_parquet(path)
 
         semantic_profiles: dict[str, SurvivalSemanticProfile] = {}
 
@@ -310,7 +310,7 @@ class SurvMetaReport:
         return validation_df
 
     @staticmethod
-    def save_col_report(report_path, col_names, semantic_profiles):
+    def save_col_report(path, col_names, semantic_profiles):
         rows = []
         for col_name in col_names:
             rows.append(
@@ -323,7 +323,7 @@ class SurvMetaReport:
                 }
             )
 
-        writer = pd.ExcelWriter(path=report_path, engine="openpyxl")
+        writer = pd.ExcelWriter(path=path, engine="openpyxl")
 
         pd.DataFrame(data=rows).to_excel(
             excel_writer=writer, index=False, sheet_name="SurvMeta"
@@ -482,7 +482,7 @@ class SurvMetaReport:
     @staticmethod
     def save_cat_meta_report(df, rename_mapping, report_path, profiles_path):
         semantic_profiles = SurvMetaReport.load_semantic_profiles(
-            profiles_path=profiles_path
+            path=profiles_path
         )
         cat_col_names = []
         for col_name, semantic_profile in semantic_profiles.items():
@@ -534,10 +534,10 @@ class SurvMetaReport:
             report_path=report_path,
         )
 
-        BaseExcel.format_cell_length(file_path=report_path)
+        BaseExcel.format_cell_length(path=report_path)
         self._add_surv_cat_validation(report_path=report_path)
         BaseExcel.protect_cols(
-            file_path=report_path,
+            path=report_path,
             protected_col_names=["col_name", "category", "count", "percentage"],
             password="statomix",
             lock=True,

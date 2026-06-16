@@ -96,7 +96,7 @@ class Cleaner:
                     f"config_version{config_version}"
                 )
             else:
-                error_msg = f"\nReport version {version} not found. Set create_new=True to create a new report.\nLatest version is {self.meta["latest_version"]}"
+                error_msg = f"\nReport version {config_version} not found. Set create_new=True to create a new report.\nLatest version is {self.meta["latest_version"]}"
                 raise FileNotFoundError(error_msg)
 
         config_version_meta = config_version_group.attrs.get("meta", {})
@@ -128,15 +128,15 @@ class Cleaner:
         df = pd.read_parquet(self.df_path)
         
         self.col_report.create_col_profiles(
-            df=df, profiles_path=col_profiles_path, replace=create_new
+            df=df, path=col_profiles_path, replace=create_new
         )
 
         self.col_report.create_col_report(
             df=df,
             report_path=col_report_path,
             profiles_path=col_profiles_path,
-            password="statomix",
-            lock=True,
+            #password="statomix",
+            #lock=True,
             replace=create_new,
         )
 
@@ -184,13 +184,13 @@ class Cleaner:
         col_edit_schema.save(path=col_edit_schema_path)
 
         col_profiles = self.col_report.load_col_profiles(
-            profiles_path=col_profiles_path
+            path=col_profiles_path
         )
         col_profiles_curated = self.col_report.get_curated_col_profiles(
             col_profiles=col_profiles, col_edit_schema=col_edit_schema
         )
         self.col_report.save_col_profiles(
-            col_profiles=col_profiles_curated, profiles_path=col_profiles_curated_path
+            col_profiles=col_profiles_curated, path=col_profiles_curated_path
         )
 
         version_meta["col_edit_schema_exists"] = True
@@ -217,7 +217,7 @@ class Cleaner:
 
         col_profiles_curated_path = req_base_path / "col_profiles_curated.parquet"
         col_profiles_curated = self.col_report.load_col_profiles(
-            profiles_path=col_profiles_curated_path
+            path=col_profiles_curated_path
         )
 
         rename_mapping_path = req_base_path / "rename_mapping.yaml"
@@ -299,7 +299,7 @@ class Cleaner:
             return
         
         col_profiles_path = req_base_path/"col_profiles_curated.parquet"
-        col_profiles = self.col_report.load_col_profiles(profiles_path=col_profiles_path)
+        col_profiles = self.col_report.load_col_profiles(path=col_profiles_path)
         
         # rename_mapping_path = req_base_path / "rename_mapping.yaml"
         # rename_mapping = BaseYAML.load(path=rename_mapping_path)
@@ -340,14 +340,14 @@ class Cleaner:
             logger.info(f"Surival meta data already exists for version:{version} and config_version:{config_version}")
             return
         
-        surv_profiles = self.surv_meta_report.load_semantic_profiles(profiles_path=surv_profiles_path)
+        surv_profiles = self.surv_meta_report.load_semantic_profiles(path=surv_profiles_path)
         curated_meta_report = pd.ExcelFile(meta_report_curated_path)
         
         meta_edit_schema = self.surv_meta_report.get_surv_edit_schema(curated_meta_report=curated_meta_report)
         meta_edit_schema.save(path=meta_edit_schema_path)
         
         surv_profiles_curated = self.surv_meta_report.get_curated_surv_profiles(meta_edit_schema=meta_edit_schema, surv_profiles=surv_profiles)
-        self.surv_meta_report.save_semantic_profiles(semantic_profiles=surv_profiles_curated, profiles_path=surv_profiles_curated_path)
+        self.surv_meta_report.save_semantic_profiles(semantic_profiles=surv_profiles_curated, path=surv_profiles_curated_path)
         
         surv_meta_df = curated_meta_report.parse(sheet_name="SurvMeta")
         surv_pairs = self.surv_meta_report.get_surv_pairs(surv_meta_df =surv_meta_df ,surv_profiles=surv_profiles_curated)
@@ -375,7 +375,7 @@ class Cleaner:
         col_profiles_path = req_base_path/"col_profiles_curated.parquet"
 
         rename_mapping = BaseYAML.load(path=rename_mapping_path)
-        col_profiles = self.col_report.load_col_profiles(profiles_path=col_profiles_path)
+        col_profiles = self.col_report.load_col_profiles(path=col_profiles_path)
     
         if meta_report_path.exists():
             version = version_group.attrs['meta']['version']
@@ -495,7 +495,7 @@ class Cleaner:
         
         surv_pairs = SurvPairs.load(path=surv_pairs_path)
         
-        col_profiles_curated = self.col_report.load_col_profiles(profiles_path=col_profiles_curated_path)
+        col_profiles_curated = self.col_report.load_col_profiles(path=col_profiles_curated_path)
         
         # Apply all the changes
         df = pd.read_parquet(path = self.df_path)
@@ -511,7 +511,7 @@ class Cleaner:
         
         df.to_parquet(path=curated_df_path)
         surv_pairs.save(path=curated_surv_pairs_path)
-        self.col_report.save_col_profiles(col_profiles=col_profiles_curated, profiles_path=curated_col_profiles_path)
+        self.col_report.save_col_profiles(col_profiles=col_profiles_curated, path=curated_col_profiles_path)
 
         curated_data_meta["curated_data_exists"] =  True
         curated_data_group.attrs["meta"] = curated_data_meta 
