@@ -1,4 +1,5 @@
 import pandas as pd
+from pathlib import Path
 from collections import defaultdict
 
 from fileverse.formats.zarr import BaseZARR
@@ -11,7 +12,7 @@ from statomix.analytics.datatypes.base.numerical import BaseNumerical
 from statomix.analytics.datatypes.base.categorical import BaseCategorical
 
 class GroupAnalyzer:
-    def __init__(self, paths:dict):
+    def __init__(self, paths: dict[str, Path]):
         self.paths = paths
         
     # def __init__(self, data_group):
