@@ -195,26 +195,40 @@ class Normality:
 
         return pd.DataFrame(results).set_index("test_type")
 
+    # def get_normality_report_default(self):
+    #     """
+    #     Pick a single appropriate test based on sample size.
+
+    #     - n <= 5000  -> Shapiro-Wilk (most powerful all-purpose test, and
+    #                     well within its valid p-value range)
+    #     - n > 5000   -> Lilliefors (scipy's Shapiro-Wilk implementation
+    #                     documents that its p-value may not be accurate
+    #                     above n=5000, even though the W statistic itself
+    #                     remains accurate; see get_normality_report('ks')
+    #                     docs for why Lilliefors and not plain KS)
+
+    #     Returns:
+    #         dict
+    #     """
+    #     n = len(self.series)
+    #     if n <= 5000:
+    #         return self._shapiro()
+    #     else:
+    #         return self._lilliefors()
+
     def get_normality_report_default(self):
-        """
-        Pick a single appropriate test based on sample size.
-
-        - n <= 5000  -> Shapiro-Wilk (most powerful all-purpose test, and
-                        well within its valid p-value range)
-        - n > 5000   -> Lilliefors (scipy's Shapiro-Wilk implementation
-                        documents that its p-value may not be accurate
-                        above n=5000, even though the W statistic itself
-                        remains accurate; see get_normality_report('ks')
-                        docs for why Lilliefors and not plain KS)
-
-        Returns:
-            dict
-        """
         n = len(self.series)
+        ties = self.get_tie_diagnostics()
+    
+        # Shapiro is the preferred all-purpose test whenever its p-value is reliable.
         if n <= 5000:
             return self._shapiro()
-        else:
-            return self._lilliefors()
+    
+        # Above 5000, avoid KS-family tests if ties are heavy.
+        if not ties["ks_family_reliable"]:
+            return self._anderson()
+    
+        return self._lilliefors()
 
     def get_recommended_tests(self):
         """
@@ -272,7 +286,54 @@ class Normality:
             "ks_family_reliable": tie_fraction <= warn_threshold,
         }
 
-    def get_outlier_diagnostics(self, method="iqr", z_thresh=3.0):
+    # def get_outlier_diagnostics(self, method="iqr", z_thresh=3.0):
+    #     """
+    #     Flag potential outliers, since a handful of extreme points can
+    #     drive rejection in moment-based tests (Jarque-Bera, D'Agostino —
+    #     both use the 3rd/4th moments and are very sensitive to extremes)
+    #     and in Shapiro-Wilk / Anderson-Darling. Useful to check before
+    #     trusting a "non-normal" verdict: is it a real shape issue, or a
+    #     few bad/extreme points?
+
+    #     Args:
+    #         method (str): 'iqr' (Tukey's fences, 1.5*IQR) or 'zscore'
+    #             (|z| > z_thresh).
+    #         z_thresh (float): Threshold used when method='zscore'.
+
+    #     Returns:
+    #         dict: {
+    #             'method': str,
+    #             'n_outliers': int,
+    #             'outlier_fraction': float,
+    #             'outlier_values': list[float],
+    #         }
+    #     """
+    #     data = self.series
+
+    #     if method == "iqr":
+    #         q1, q3 = data.quantile(0.25), data.quantile(0.75)
+    #         iqr = q3 - q1
+    #         lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    #         outliers = data[(data < lower) | (data > upper)]
+    #     elif method == "zscore":
+    #         z = (data - data.mean()) / data.std(ddof=self.ddof)
+    #         outliers = data[z.abs() > z_thresh]
+    #     else:
+    #         raise ValueError("method must be 'iqr' or 'zscore'")
+
+    #     return {
+    #         "method": method,
+    #         "n_outliers": len(outliers),
+    #         "outlier_fraction": len(outliers) / len(data),
+    #         "outlier_values": sorted(outliers.tolist()),
+    #     }
+
+    def get_outlier_diagnostics(
+        self,
+        method="iqr",
+        z_thresh=3.0,
+        modified_z_thresh=3.5,
+    ):
         """
         Flag potential outliers, since a handful of extreme points can
         drive rejection in moment-based tests (Jarque-Bera, D'Agostino —
@@ -280,40 +341,89 @@ class Normality:
         and in Shapiro-Wilk / Anderson-Darling. Useful to check before
         trusting a "non-normal" verdict: is it a real shape issue, or a
         few bad/extreme points?
-
+    
         Args:
-            method (str): 'iqr' (Tukey's fences, 1.5*IQR) or 'zscore'
-                (|z| > z_thresh).
-            z_thresh (float): Threshold used when method='zscore'.
-
+            method (str):
+                - 'iqr'            : Tukey's fences (1.5 * IQR)
+                - 'zscore'         : |z| > z_thresh
+                - 'modified_zscore': |modified_z| > modified_z_thresh
+            z_thresh (float):
+                Threshold used when method='zscore'. Default = 3.0.
+            modified_z_thresh (float):
+                Threshold used when method='modified_zscore'.
+                Default = 3.5 (Iglewicz & Hoaglin recommendation).
+    
         Returns:
             dict: {
                 'method': str,
+                'threshold': float | str,
                 'n_outliers': int,
                 'outlier_fraction': float,
                 'outlier_values': list[float],
             }
         """
         data = self.series
-
+    
         if method == "iqr":
             q1, q3 = data.quantile(0.25), data.quantile(0.75)
             iqr = q3 - q1
-            lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+    
             outliers = data[(data < lower) | (data > upper)]
+            threshold = "1.5*IQR"
+    
         elif method == "zscore":
-            z = (data - data.mean()) / data.std(ddof=self.ddof)
+            std = data.std(ddof=self.ddof)
+    
+            if std == 0:
+                return {
+                    "method": method,
+                    "threshold": z_thresh,
+                    "n_outliers": 0,
+                    "outlier_fraction": 0.0,
+                    "outlier_values": [],
+                    "computable": False,
+                    "note": "Standard deviation is zero; z-scores cannot be computed.",
+                }
+    
+            z = (data - data.mean()) / std
             outliers = data[z.abs() > z_thresh]
+            threshold = z_thresh
+    
+        elif method == "modified_zscore":
+            median = data.median()
+            mad = np.median(np.abs(data - median))
+    
+            if mad == 0:
+                return {
+                    "method": method,
+                    "threshold": modified_z_thresh,
+                    "n_outliers": 0,
+                    "outlier_fraction": 0.0,
+                    "outlier_values": [],
+                    "computable": False,
+                    "note": "MAD is zero; modified z-scores cannot be computed.",
+                }
+    
+            modified_z = 0.6745 * (data - median) / mad
+            outliers = data[np.abs(modified_z) > modified_z_thresh]
+            threshold = modified_z_thresh
+    
         else:
-            raise ValueError("method must be 'iqr' or 'zscore'")
-
+            raise ValueError(
+                "method must be one of {'iqr', 'zscore', 'modified_zscore'}"
+            )
+    
         return {
             "method": method,
-            "n_outliers": len(outliers),
+            "threshold": threshold,
+            "n_outliers": int(len(outliers)),
             "outlier_fraction": len(outliers) / len(data),
             "outlier_values": sorted(outliers.tolist()),
+            "computable": True,
         }
-
+    
     def get_power_note(self):
         """
         Contextualize sample size against statistical power, since

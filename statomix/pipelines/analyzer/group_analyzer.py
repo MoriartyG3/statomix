@@ -74,7 +74,9 @@ class GroupAnalyzer:
         num_dicts = []
         for col_name in col_names:
             series = df[col_name]
-            num_dicts.append(BaseNumerical.get_summary(series=series).to_dict())
+            num_dict = BaseNumerical.get_summary(series=series).to_dict()
+            num_dict['name'] = series.name
+            num_dicts.append(num_dict)
         
         num_summary_df = pd.DataFrame(data=num_dicts)
     

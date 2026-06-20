@@ -5,8 +5,7 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class NumericalSummary:
-    name: str
-
+    
     n: int
     unique_n: int
 
@@ -70,7 +69,6 @@ class BaseNumerical:
 
         if n == 0:
             return NumericalSummary(
-                name= series.name,
                 n=0,
                 missing_n=missing_n,
                 missing_pct=missing_pct,
@@ -129,7 +127,6 @@ class BaseNumerical:
         kurtosis = series_non_null.kurt()
 
         return NumericalSummary(
-            name = series.name,
             n=n,
             missing_n=missing_n,
             missing_pct=missing_pct,
