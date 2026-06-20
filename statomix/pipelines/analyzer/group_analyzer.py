@@ -8,8 +8,8 @@ from fileverse.formats.excel import BaseExcel
 from statomix.pipelines.cleaner.surv.surv_report import SurvPairs
 from statomix.pipelines.cleaner.col.col_report import ColReport, DataTypes
 
-from statomix.analytics.datatypes.base.numerical import BaseNumerical
-from statomix.analytics.datatypes.base.categorical import BaseCategorical
+from statomix.analytics.datatypes.numerical.base import BaseNumerical
+from statomix.analytics.datatypes.categorical.base import BaseCategorical
 
 class GroupAnalyzer:
     def __init__(self, paths: dict[str, Path]):

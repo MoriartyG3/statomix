@@ -8,8 +8,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from fileverse.formats.excel import BaseExcel
 
-from statomix.analytics.datatypes.base.numerical import BaseNumerical
-from statomix.analytics.datatypes.base.categorical import BaseCategorical
+from statomix.analytics.datatypes.categorical.base import BaseCategorical
 
 from .col.col_semantic_rules import DataTypes
 
