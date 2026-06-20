@@ -74,11 +74,11 @@ class GroupAnalyzer:
         num_dicts = []
         for col_name in col_names:
             series = df[col_name]
-            num_dict = BaseNumerical.get_summary(series=series).to_dict()
+            num_dict = BaseNumerical.get_summary(series=series)
             num_dict['name'] = series.name
             num_dicts.append(num_dict)
         
-        num_summary_df = pd.DataFrame(data=num_dicts)
+        num_summary_df = pd.DataFrame(data=num_dicts).set_index('name')
     
         return num_summary_df
 
@@ -91,7 +91,7 @@ class GroupAnalyzer:
         num_summary_df = self.get_num_summary_df(df=df, col_names=datatype_map[DataTypes.NUMERICAL])
     
         writer = pd.ExcelWriter(path=path, engine="openpyxl")
-        num_summary_df.to_excel(excel_writer=writer, index=False, sheet_name="Numerical")
+        num_summary_df.to_excel(excel_writer=writer, index=True, sheet_name="Numerical")
         cat_summary_df.to_excel(excel_writer=writer, index=True, sheet_name="Categorical")
         writer.close()
         
