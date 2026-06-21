@@ -195,18 +195,39 @@ class Normality:
 
         return pd.DataFrame(results).set_index("test_type")
 
+    # def get_normality_report_default(self):
+    #     """
+    #     Pick a single appropriate test based on sample size.
+
+    #     - n <= 5000  -> Shapiro-Wilk (most powerful all-purpose test, and
+    #                     well within its valid p-value range)
+    #     - n > 5000   -> Lilliefors (scipy's Shapiro-Wilk implementation
+    #                     documents that its p-value may not be accurate
+    #                     above n=5000, even though the W statistic itself
+    #                     remains accurate; see get_normality_report('ks')
+    #                     docs for why Lilliefors and not plain KS)
+
+    #     Returns:
+    #         dict
+    #     """
+    #     n = len(self.series)
+    #     if n <= 5000:
+    #         return self._shapiro()
+    #     else:
+    #         return self._lilliefors()
+
     def get_normality_report_default(self):
         n = len(self.series)
         ties = self.get_tie_diagnostics()
-
+    
         # Shapiro is the preferred all-purpose test whenever its p-value is reliable.
         if n <= 5000:
             return self._shapiro()
-
+    
         # Above 5000, avoid KS-family tests if ties are heavy.
         if not ties["ks_family_reliable"]:
             return self._anderson()
-
+    
         return self._lilliefors()
 
     def get_recommended_tests(self):
@@ -265,6 +286,48 @@ class Normality:
             "ks_family_reliable": tie_fraction <= warn_threshold,
         }
 
+    # def get_outlier_diagnostics(self, method="iqr", z_thresh=3.0):
+    #     """
+    #     Flag potential outliers, since a handful of extreme points can
+    #     drive rejection in moment-based tests (Jarque-Bera, D'Agostino —
+    #     both use the 3rd/4th moments and are very sensitive to extremes)
+    #     and in Shapiro-Wilk / Anderson-Darling. Useful to check before
+    #     trusting a "non-normal" verdict: is it a real shape issue, or a
+    #     few bad/extreme points?
+
+    #     Args:
+    #         method (str): 'iqr' (Tukey's fences, 1.5*IQR) or 'zscore'
+    #             (|z| > z_thresh).
+    #         z_thresh (float): Threshold used when method='zscore'.
+
+    #     Returns:
+    #         dict: {
+    #             'method': str,
+    #             'n_outliers': int,
+    #             'outlier_fraction': float,
+    #             'outlier_values': list[float],
+    #         }
+    #     """
+    #     data = self.series
+
+    #     if method == "iqr":
+    #         q1, q3 = data.quantile(0.25), data.quantile(0.75)
+    #         iqr = q3 - q1
+    #         lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    #         outliers = data[(data < lower) | (data > upper)]
+    #     elif method == "zscore":
+    #         z = (data - data.mean()) / data.std(ddof=self.ddof)
+    #         outliers = data[z.abs() > z_thresh]
+    #     else:
+    #         raise ValueError("method must be 'iqr' or 'zscore'")
+
+    #     return {
+    #         "method": method,
+    #         "n_outliers": len(outliers),
+    #         "outlier_fraction": len(outliers) / len(data),
+    #         "outlier_values": sorted(outliers.tolist()),
+    #     }
+
     def get_outlier_diagnostics(
         self,
         method="iqr",
@@ -278,7 +341,7 @@ class Normality:
         and in Shapiro-Wilk / Anderson-Darling. Useful to check before
         trusting a "non-normal" verdict: is it a real shape issue, or a
         few bad/extreme points?
-
+    
         Args:
             method (str):
                 - 'iqr'            : Tukey's fences (1.5 * IQR)
@@ -289,7 +352,7 @@ class Normality:
             modified_z_thresh (float):
                 Threshold used when method='modified_zscore'.
                 Default = 3.5 (Iglewicz & Hoaglin recommendation).
-
+    
         Returns:
             dict: {
                 'method': str,
@@ -300,19 +363,19 @@ class Normality:
             }
         """
         data = self.series
-
+    
         if method == "iqr":
             q1, q3 = data.quantile(0.25), data.quantile(0.75)
             iqr = q3 - q1
             lower = q1 - 1.5 * iqr
             upper = q3 + 1.5 * iqr
-
+    
             outliers = data[(data < lower) | (data > upper)]
             threshold = "1.5*IQR"
-
+    
         elif method == "zscore":
             std = data.std(ddof=self.ddof)
-
+    
             if std == 0:
                 return {
                     "method": method,
@@ -323,15 +386,15 @@ class Normality:
                     "computable": False,
                     "note": "Standard deviation is zero; z-scores cannot be computed.",
                 }
-
+    
             z = (data - data.mean()) / std
             outliers = data[z.abs() > z_thresh]
             threshold = z_thresh
-
+    
         elif method == "modified_zscore":
             median = data.median()
             mad = np.median(np.abs(data - median))
-
+    
             if mad == 0:
                 return {
                     "method": method,
@@ -342,16 +405,16 @@ class Normality:
                     "computable": False,
                     "note": "MAD is zero; modified z-scores cannot be computed.",
                 }
-
+    
             modified_z = 0.6745 * (data - median) / mad
             outliers = data[np.abs(modified_z) > modified_z_thresh]
             threshold = modified_z_thresh
-
+    
         else:
             raise ValueError(
                 "method must be one of {'iqr', 'zscore', 'modified_zscore'}"
             )
-
+    
         return {
             "method": method,
             "threshold": threshold,
@@ -360,7 +423,7 @@ class Normality:
             "outlier_values": sorted(outliers.tolist()),
             "computable": True,
         }
-
+    
     def get_power_note(self):
         """
         Contextualize sample size against statistical power, since
@@ -745,102 +808,7 @@ class Normality:
             "p_value_reliable": True,
         }
 
-    @staticmethod
-    def _fmt_p(p_value, ndigits=3):
-        """
-        Format a p-value for on-plot display only -- this never touches
-        the raw float stored in dicts/DataFrames returned by
-        get_normality_report() etc., which always keep the exact value.
-
-        Convention: print the exact value to `ndigits` decimal places
-        when it's representable at that precision (down to the smallest
-        nonzero value, e.g. 0.001); below that threshold, collapse to
-        "<0.001" (APA-style) rather than a long/tiny decimal or
-        scientific notation, since the exact magnitude rarely matters
-        for an at-a-glance plot annotation once it's that small.
-
-        Returns just the value portion (e.g. "0.948" or "<0.001") --
-        callers are responsible for their own "p = " / "p-value: " /
-        "p" column label, since some contexts (a table column already
-        labeled "p") don't want a repeated prefix.
-        """
-        threshold = 10 ** (-ndigits)
-        if p_value < threshold:
-            return f"<{threshold:.{ndigits}f}"
-        return f"{p_value:.{ndigits}f}"
-
-    # Short, fixed-width labels for the all-tests table -- the raw
-    # test_type strings ("Kolmogorov-Smirnov", "D'Agostino-Pearson") are
-    # too long to keep six rows aligned and compact on a plot.
-    _SHORT_TEST_NAMES = {
-        "Shapiro-Wilk": "Shapiro",
-        "Kolmogorov-Smirnov": "KS",
-        "Anderson-Darling": "Anderson",
-        "D'Agostino-Pearson": "DAgostino",
-        "Jarque-Bera": "JarqueBera",
-        "Lilliefors": "Lilliefors",
-    }
-
-    def _annotation_text(self, test_type):
-        """
-        Build the 'TestName / stat / p / verdict' text block used by
-        qq_plot() and hist_with_normal_curve() when annotate=True.
-        """
-        result = self.get_normality_report(test_type)
-        verdict = "normal" if result["normal"] else "not normal"
-        lines = [
-            result["test_type"],
-            f"stat = {result['stat']:.4f}",
-            f"p = {self._fmt_p(result['p'])}",
-            f"({verdict} at \u03b1={self.alpha})",
-        ]
-        if not result.get("p_value_reliable", True):
-            lines.append("(p-value may be unreliable)")
-        return "\n".join(lines)
-
-    def _annotation_text_all(self):
-        """
-        Build a compact, fixed-width table of all 6 tests' stat/p/verdict
-        for qq_plot() and hist_with_normal_curve() when annotate_all=True.
-        Each row: short test name, statistic, p-value (scientific notation
-        for very small values), a checkmark/cross for the verdict, and a
-        trailing '*' if that test's p-value may not be reliable (e.g.
-        Shapiro-Wilk above n=5000) -- see the footnote line appended below
-        the table when any '*' is present.
-        """
-        report = self.get_normality_report_full(as_dataframe=True).reset_index()
-
-        header = f"{'Test':<11s} {'stat':>9s} {'p':>8s}"
-        rows = [header, "-" * len(header)]
-        any_unreliable = False
-
-        for _, row in report.iterrows():
-            short_name = self._SHORT_TEST_NAMES[row["test_type"]]
-            mark = "\u2713" if row["normal"] else "\u2717"
-            reliable = row.get("p_value_reliable", True)
-            star = "" if reliable else "*"
-            if not reliable:
-                any_unreliable = True
-            rows.append(
-                f"{short_name:<11s} {row['stat']:>9.3f} "
-                f"{self._fmt_p(row['p']):>8s} {mark}{star}"
-            )
-
-        if any_unreliable:
-            rows.append("* p-value may be unreliable")
-
-        return "\n".join(rows)
-
-    def qq_plot(
-        self,
-        save_path=None,
-        plot=True,
-        figsize=(10, 5),
-        annotate=False,
-        annotate_test="shapiro",
-        annotate_loc="upper left",
-        annotate_all=False,
-    ):
+    def qq_plot(self, save_path=None, plot=True, figsize=(10, 5)):
         """
         Draw a Q-Q plot of this instance's data against the normal distribution.
 
@@ -849,34 +817,9 @@ class Normality:
             plot (bool): If True, display the figure; otherwise close it
                 (useful for headless/batch saving).
             figsize (tuple): Figure size.
-            annotate (bool): If True, overlay a text box with one chosen
-                test's name, statistic, and p-value directly on the plot.
-                Default False -- existing calls are unaffected. Ignored
-                if annotate_all=True.
-            annotate_test (str): Which test's result to display when
-                annotate=True. One of self._implemented_tests (e.g.
-                'shapiro', 'anderson'). Ignored if annotate=False or if
-                annotate_all=True.
-            annotate_loc (str): Corner to place the annotation box in.
-                One of 'upper left', 'upper right', 'lower left',
-                'lower right'. Ignored if neither annotate nor
-                annotate_all is True.
-            annotate_all (bool): If True, overlay a compact table with
-                ALL 6 implemented tests' statistic, p-value, and verdict,
-                instead of a single test. Takes priority over annotate/
-                annotate_test if both are set. Default False.
         """
-        fig = plt.figure(figsize=figsize)
+        plt.figure(figsize=figsize)
         probplot(self.series, dist="norm", plot=plt)
-
-        if annotate_all:
-            self._add_annotation(plt.gca(), None, annotate_loc, all_tests=True)
-        elif annotate:
-            if annotate_test not in self._implemented_tests:
-                raise ValueError(
-                    f"annotate_test must be one of {self._implemented_tests}"
-                )
-            self._add_annotation(plt.gca(), annotate_test, annotate_loc)
 
         if save_path is not None:
             plt.savefig(save_path)
@@ -884,50 +827,12 @@ class Normality:
         if plot:
             plt.show()
         else:
-            plt.close(fig)
+            plt.close()
 
-    def hist_with_normal_curve(
-        self,
-        bins=30,
-        save_path=None,
-        plot=True,
-        figsize=(10, 5),
-        annotate=False,
-        annotate_test="shapiro",
-        annotate_loc="upper right",
-        annotate_all=False,
-    ):
+    def hist_with_normal_curve(self, bins=30, save_path=None, plot=True, figsize=(10, 5)):
         """
         Plot a histogram of the data overlaid with the fitted normal PDF.
         Often more persuasive to stakeholders than a bare p-value.
-
-        Args:
-            bins (int): Number of histogram bins.
-            save_path (str, optional): If given, save the figure to this path.
-            plot (bool): If True, display the figure; otherwise close it.
-            figsize (tuple): Figure size.
-            annotate (bool): If True, overlay a text box with one chosen
-                test's name, statistic, and p-value directly on the plot.
-                Default False -- existing calls are unaffected. Ignored
-                if annotate_all=True.
-            annotate_test (str): Which test's result to display when
-                annotate=True. One of self._implemented_tests (e.g.
-                'shapiro', 'anderson'). Ignored if annotate=False or if
-                annotate_all=True.
-            annotate_loc (str): Corner to place the annotation box in.
-                One of 'upper left', 'upper right', 'lower left',
-                'lower right'. Default 'upper right', since a normal-ish
-                histogram peaks in the middle and leaves both top corners
-                clear; switch to a 'lower' corner if your data is heavily
-                skewed and the curve's peak sits near the top of a corner.
-                Ignored if neither annotate nor annotate_all is True.
-            annotate_all (bool): If True, overlay a compact table with
-                ALL 6 implemented tests' statistic, p-value, and verdict,
-                instead of a single test. Takes priority over annotate/
-                annotate_test if both are set. Default False. The table
-                is taller than the single-test box -- if it overlaps the
-                histogram bars, try a different annotate_loc or a larger
-                figsize.
         """
         from scipy.stats import norm as _norm
 
@@ -938,15 +843,6 @@ class Normality:
         ax.plot(x, _norm.pdf(x, self.mean, self.std), linewidth=2)
         ax.set_title("Histogram with Fitted Normal Curve")
 
-        if annotate_all:
-            self._add_annotation(ax, None, annotate_loc, all_tests=True)
-        elif annotate:
-            if annotate_test not in self._implemented_tests:
-                raise ValueError(
-                    f"annotate_test must be one of {self._implemented_tests}"
-                )
-            self._add_annotation(ax, annotate_test, annotate_loc)
-
         if save_path is not None:
             fig.savefig(save_path)
 
@@ -954,220 +850,3 @@ class Normality:
             plt.show()
         else:
             plt.close(fig)
-
-    def _add_annotation(self, ax, test_type, loc, all_tests=False):
-        """
-        Draw the test-stat/p-value text box on the given Axes at one of
-        the four corners, in axes-fraction coordinates so it stays put
-        regardless of the data's actual scale.
-
-        Args:
-            test_type (str or None): Ignored if all_tests=True.
-            all_tests (bool): If True, draw the compact all-6-tests table
-                instead of a single test's box.
-        """
-        positions = {
-            "upper left": dict(x=0.03, y=0.97, va="top", ha="left"),
-            "upper right": dict(x=0.97, y=0.97, va="top", ha="right"),
-            "lower left": dict(x=0.03, y=0.03, va="bottom", ha="left"),
-            "lower right": dict(x=0.97, y=0.03, va="bottom", ha="right"),
-        }
-        if loc not in positions:
-            raise ValueError(f"annotate_loc must be one of {list(positions.keys())}")
-        pos = positions[loc]
-
-        text = self._annotation_text_all() if all_tests else self._annotation_text(test_type)
-        ax.text(
-            pos["x"], pos["y"], text,
-            transform=ax.transAxes,
-            verticalalignment=pos["va"],
-            horizontalalignment=pos["ha"],
-            fontsize=9 if not all_tests else 8,
-            family="monospace",
-            bbox=dict(boxstyle="round", facecolor="white", edgecolor="gray", alpha=0.9),
-        )
-
-    def plot_dashboard(
-        self,
-        show_all_tests=True,
-        test_type="shapiro",
-        bins=30,
-        save_path=None,
-        plot=True,
-        figsize=(15, 5),
-    ):
-        """
-        Draw a single combined figure: Q-Q plot, histogram with fitted
-        normal curve, and a dedicated panel showing test result(s) --
-        either all 6 implemented tests as a table, or one chosen test
-        shown larger. This is the "one figure to share" view; qq_plot()
-        and hist_with_normal_curve() remain available individually if you
-        only need one of the two plots.
-
-        Args:
-            show_all_tests (bool): If True (default), the third panel is
-                a table with all 6 implemented tests' statistic, p-value,
-                and color-coded verdict. If False, the third panel shows
-                just the one test named by `test_type`, larger and
-                easier to read at a glance.
-            test_type (str): Which test to show when show_all_tests=False.
-                One of self._implemented_tests (e.g. 'shapiro', 'anderson').
-                Ignored if show_all_tests=True.
-            bins (int): Number of histogram bins (passed through to the
-                histogram panel).
-            save_path (str, optional): If given, save the figure to this path.
-            plot (bool): If True, display the figure; otherwise close it
-                (useful for headless/batch saving).
-            figsize (tuple): Overall figure size. The three panels split
-                this width roughly 1 : 1 : 0.7-0.9 (table vs. single-test
-                panel), not evenly, since the third panel needs less
-                horizontal room than the two plots.
-
-        Returns:
-            matplotlib.figure.Figure: the created figure (also useful if
-            you want further customization before saving/showing it
-            yourself).
-        """
-        from scipy.stats import norm as _norm
-
-        if not show_all_tests and test_type not in self._implemented_tests:
-            raise ValueError(
-                f"test_type must be one of {self._implemented_tests}"
-            )
-
-        third_panel_width = 0.9 if show_all_tests else 0.7
-        fig, axes = plt.subplots(
-            1, 3, figsize=figsize,
-            gridspec_kw={"width_ratios": [1, 1, third_panel_width]},
-        )
-
-        # Panel 1: Q-Q plot
-        probplot(self.series, dist="norm", plot=axes[0])
-        axes[0].set_title("Q-Q Plot")
-
-        # Panel 2: histogram with fitted normal curve
-        axes[1].hist(self.series, bins=bins, density=True, alpha=0.6, edgecolor="white")
-        x = np.linspace(self.series.min(), self.series.max(), 200)
-        axes[1].plot(x, _norm.pdf(x, self.mean, self.std), linewidth=2)
-        axes[1].set_title("Histogram with Fitted Normal Curve")
-
-        # Panel 3: test result(s)
-        axes[2].axis("off")
-        if show_all_tests:
-            self._draw_results_table(axes[2])
-            axes[2].set_title("Test Results")
-        else:
-            self._draw_single_result_box(axes[2], test_type)
-            axes[2].set_title("Test Result")
-
-        fig.tight_layout()
-
-        if save_path is not None:
-            fig.savefig(save_path)
-
-        if plot:
-            plt.show()
-        else:
-            plt.close(fig)
-
-        return fig
-
-    def _draw_results_table(self, ax):
-        """
-        Render all 6 implemented tests as a real matplotlib table (not a
-        text annotation -- this panel has dedicated room, so a proper
-        table reads better than monospace text alignment tricks) with
-        color-coded verdicts and a footnote if any p-value may be
-        unreliable (e.g. Shapiro-Wilk above n=5000).
-        """
-        report = self.get_normality_report_full(as_dataframe=True).reset_index()
-
-        cell_text = []
-        unreliable_rows = []
-        for i, row in report.iterrows():
-            mark = "\u2713" if row["normal"] else "\u2717"
-            if not row.get("p_value_reliable", True):
-                mark += "*"
-                unreliable_rows.append(i)
-            cell_text.append([
-                row["test_type"],
-                f"{row['stat']:.4f}",
-                self._fmt_p(row["p"]),
-                mark,
-            ])
-
-        table = ax.table(
-            cellText=cell_text,
-            colLabels=["Test", "Stat", "p", "Normal"],
-            loc="center", cellLoc="center",
-            colWidths=[0.42, 0.2, 0.22, 0.18],
-        )
-        table.auto_set_font_size(False)
-        table.set_fontsize(9)
-        table.scale(1, 2.0)
-
-        for i, row in report.iterrows():
-            cell = table[i + 1, 3]  # +1 to skip the header row
-            cell.set_text_props(
-                color="#1f7a3d" if row["normal"] else "#a3242f",
-                weight="bold",
-            )
-
-        if unreliable_rows:
-            ax.text(
-                0.5, -0.06, "* p-value may be unreliable",
-                transform=ax.transAxes, ha="center", fontsize=8, style="italic",
-            )
-
-    def _draw_single_result_box(self, ax, test_type):
-        """
-        Render one test's result as a large, centered box -- used by
-        plot_dashboard() when show_all_tests=False. The verdict line is
-        drawn separately so it can be color-coded (green/red) the same
-        way the all-tests table's verdict column is.
-        """
-        from matplotlib.patches import FancyBboxPatch
-
-        result = self.get_normality_report(test_type)
-        verdict_color = "#1f7a3d" if result["normal"] else "#a3242f"
-        verdict_text = "Normal" if result["normal"] else "Not normal"
-
-        body_lines = [
-            result["test_type"],
-            "",
-            f"Statistic: {result['stat']:.4f}",
-            f"p-value: {self._fmt_p(result['p'])}",
-        ]
-        if not result.get("p_value_reliable", True):
-            body_lines.append("(p-value may be unreliable)")
-
-        # Background box behind everything, drawn first (zorder=0) so the
-        # text sits on top of it.
-        ax.add_patch(FancyBboxPatch(
-            (0.08, 0.20), 0.84, 0.62, transform=ax.transAxes,
-            boxstyle="round,pad=0.02", facecolor="#f4f5fb",
-            edgecolor="gray", zorder=0,
-        ))
-
-        # Vertical offset for the verdict/alpha lines scales with how many
-        # body lines there are, so the extra "(p-value may be unreliable)"
-        # line (when present) doesn't crowd into the verdict line below it.
-        body_top_y = 0.66
-        line_height = 0.07
-        verdict_y = body_top_y - len(body_lines) * line_height * 0.5 - 0.06
-
-        ax.text(
-            0.5, body_top_y, "\n".join(body_lines),
-            transform=ax.transAxes, fontsize=13,
-            ha="center", va="center", linespacing=1.8, zorder=1,
-        )
-        ax.text(
-            0.5, verdict_y, f"Verdict: {verdict_text}",
-            transform=ax.transAxes, fontsize=13, weight="bold",
-            ha="center", va="center", color=verdict_color, zorder=1,
-        )
-        ax.text(
-            0.5, verdict_y - 0.08, f"(\u03b1 = {self.alpha})",
-            transform=ax.transAxes, fontsize=11,
-            ha="center", va="center", color="gray", zorder=1,
-        )
