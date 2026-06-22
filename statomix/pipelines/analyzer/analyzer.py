@@ -59,5 +59,7 @@ class Analyzer(BasePipeline):
 
         if summary_report_path.exists():
             logger.info(f"Summary report already exists.")
+            return
+            
         group_analyzer.create_summary_report(path=summary_report_path)
         

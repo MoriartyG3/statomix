@@ -44,10 +44,10 @@ class BaseNumerical:
                 "p99": None,
                 "min": None,
                 "max": None,
-                "skew": None,
-                "kurtosis": None,
-                "outlier_n": None,
-                "outlier_pct": None,
+                #"skew": None,
+                #"kurtosis": None,
+                #"outlier_n": None,
+                #"outlier_pct": None,
             }
 
         q_vals = series_non_null.quantile(
@@ -58,20 +58,20 @@ class BaseNumerical:
 
         iqr = q3 - q1
 
-        lower_bound = q1 - (1.5 * iqr)
-        upper_bound = q3 + (1.5 * iqr)
+        # lower_bound = q1 - (1.5 * iqr)
+        # upper_bound = q3 + (1.5 * iqr)
 
-        outlier_mask = (
-            (series_non_null < lower_bound)
-            | (series_non_null > upper_bound)
-        )
+        # outlier_mask = (
+        #     (series_non_null < lower_bound)
+        #     | (series_non_null > upper_bound)
+        # )
 
-        outlier_n = int(outlier_mask.sum())
+        # outlier_n = int(outlier_mask.sum())
 
-        outlier_pct = round(
-            (outlier_n / n) * 100,
-            2,
-        )
+        # outlier_pct = round(
+        #     (outlier_n / n) * 100,
+        #     2,
+        # )
 
         stats = series_non_null.agg(
             [
@@ -79,11 +79,11 @@ class BaseNumerical:
                 "std",
                 "min",
                 "max",
-                "skew",
+                #"skew",
             ]
         )
 
-        kurtosis = series_non_null.kurt()
+        #kurtosis = series_non_null.kurt()
 
         return {
             "n": n,
@@ -102,8 +102,8 @@ class BaseNumerical:
             "p99": float(p99),
             "min": BaseNumerical._safe_float(stats["min"]),
             "max": BaseNumerical._safe_float(stats["max"]),
-            "skew": BaseNumerical._safe_float(stats["skew"]),
-            "kurtosis": BaseNumerical._safe_float(kurtosis),
-            "outlier_n": outlier_n,
-            "outlier_pct": outlier_pct,
+            #"skew": BaseNumerical._safe_float(stats["skew"]),
+            #"kurtosis": BaseNumerical._safe_float(kurtosis),
+            #"outlier_n": outlier_n,
+            #"outlier_pct": outlier_pct,
         }

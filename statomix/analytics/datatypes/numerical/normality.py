@@ -624,6 +624,81 @@ class Normality:
             # Anderson's "p" is numeric (interpolated); all tests now share this.
             out[f"normal_at_alpha={a}"] = report["p"] > a
         return out
+    
+    def get_effect_size(self):
+        """
+        Quantify HOW FAR the data is from normal, independent of sample
+        size -- the thing a p-value alone cannot tell you (see
+        get_power_note(): at large n, trivial deviations still produce
+        small p-values; at small n, real deviations may not).
+ 
+        Combines three sample-size-independent measures:
+        - Shapiro-Wilk's 1-W: W is a standardized (0 to 1) measure of how
+          well the data's order statistics correlate with what's expected
+          under normality; W=1 is perfect, so 1-W grows with departure.
+          Unlike skewness/kurtosis, this is sensitive to departures
+          that DON'T show up as asymmetry or heavy tails -- e.g.
+          bimodality, which a skew/kurtosis-only view can miss entirely
+          (calibration: a symmetric two-cluster bimodal sample can show
+          skewness near 0 while 1-W is still substantial).
+        - Skewness: standardized asymmetry (0 = symmetric).
+        - Excess kurtosis: standardized tail-weight deviation (0 = normal
+          tail weight).
+ 
+        None of these three scale up with n the way a p-value does, so
+        they're the right tool for "is this deviation big enough to
+        matter" rather than "is this deviation statistically detectable."
+ 
+        Returns:
+            dict: {
+                'one_minus_w': float,         # Shapiro-Wilk 1-W
+                'one_minus_w_interpretation': str,
+                'skewness': float,
+                'kurtosis_excess': float,
+                'overall_interpretation': str,
+            }
+        """
+        one_minus_w = 1 - self._shapiro()["stat"]
+ 
+        # Thresholds calibrated against standard normal (~0.002), uniform
+        # and t(df=3) (~0.03-0.04), moderate skew/heavy tails (~0.15-0.21),
+        # and severe lognormal-style skew (~0.57).
+        if one_minus_w < 0.02:
+            w_msg = "negligible deviation from normal"
+        elif one_minus_w < 0.05:
+            w_msg = "small deviation from normal"
+        elif one_minus_w < 0.15:
+            w_msg = "moderate deviation from normal"
+        else:
+            w_msg = "large deviation from normal"
+ 
+        shape = self.get_distribution_shape()
+        s, k = shape["skewness"], shape["kurtosis_excess"]
+ 
+        # If skew/kurtosis both look mild but 1-W says otherwise, that
+        # combination itself is informative -- flag it explicitly rather
+        # than silently leaving the contradiction for the user to notice.
+        if one_minus_w >= 0.15 and abs(s) < 0.5 and abs(k) < 0.5:
+            overall = (
+                f"{w_msg}; skewness and kurtosis both look mild, which "
+                f"suggests the departure is in OVERALL SHAPE rather than "
+                f"simple asymmetry or tail weight (e.g. multimodality) -- "
+                f"worth a look at the histogram/QQ plot."
+            )
+        else:
+            overall = (
+                f"{w_msg} (1-W={one_minus_w:.3f}); "
+                f"{shape['skew_interpretation']}; "
+                f"{shape['kurtosis_interpretation']}."
+            )
+ 
+        return {
+            "one_minus_w": one_minus_w,
+            "one_minus_w_interpretation": w_msg,
+            "skewness": s,
+            "kurtosis_excess": k,
+            "overall_interpretation": overall,
+        }
 
     def _shapiro(self):
         # scipy documents that for N > 5000 the W statistic remains accurate
