@@ -55,7 +55,7 @@ class BinaryClassSurv:
         "time"/"event" subsets for group 0 and group 1 respectively.
     km0, km1 : SingleClassSurv
         Fitted KM models for each group.
-    comparison_dict : dict
+    log_rank_dict : dict
         Log-rank test p-value, group sizes, and per-group median
         survival/follow-up.
     cph : lifelines.CoxPHFitter
@@ -166,7 +166,7 @@ class BinaryClassSurv:
             event_observed_B=self.surv_df1["event"],
         )
 
-        comparison_dict = {
+        log_rank_dict = {
             "p_value": log_rank_results.p_value,
             f"{self.group_labels[0]}_n": self.surv_df0.shape[0],
             f"{self.group_labels[1]}_n": self.surv_df1.shape[0],
@@ -176,7 +176,7 @@ class BinaryClassSurv:
             f"{self.group_labels[1]}_median_follow_up": self.km1.descriptives["median_follow_up"],
         }
 
-        self.comparison_dict = comparison_dict
+        self.log_rank_dict = log_rank_dict
 
     def _create_hazard_dict(self, censoring: str = "right"):
         baseline_group = self._baseline_idx
