@@ -168,12 +168,12 @@ class BinaryClassSurv:
 
         log_rank_dict = {
             "p_value": log_rank_results.p_value,
-            f"{self.group_labels[0]}_n": self.surv_df0.shape[0],
-            f"{self.group_labels[1]}_n": self.surv_df1.shape[0],
-            f"{self.group_labels[0]}_median_survival": self.km0.descriptives["median_survival"],
-            f"{self.group_labels[1]}_median_survival": self.km1.descriptives["median_survival"],
-            f"{self.group_labels[0]}_median_follow_up": self.km0.descriptives["median_follow_up"],
-            f"{self.group_labels[1]}_median_follow_up": self.km1.descriptives["median_follow_up"],
+            "group0_n": self.surv_df0.shape[0],
+            "group1_n": self.surv_df1.shape[0],
+            "group0_median_survival": self.km0.descriptives["median_survival"],
+            "group1_median_survival": self.km1.descriptives["median_survival"],
+            "group0_median_follow_up": self.km0.descriptives["median_follow_up"],
+            "group1_median_follow_up": self.km1.descriptives["median_follow_up"],
         }
 
         self.log_rank_dict = log_rank_dict
