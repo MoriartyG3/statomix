@@ -51,6 +51,15 @@ class BinaryClassSurv:
     group_labels : dict
         Maps {0: category0, 1: category1} -- the two unique values found
         in the grouping column, in first-seen order from `.unique()`.
+    baseline_label : Any
+        The actual category value (one of `group_labels.values()`) that
+        was resolved as the Cox-model reference level. This is the single
+        source of truth for "which group is baseline" -- callers should
+        read this attribute rather than re-deriving baseline group
+        identity from the `baseline_group` argument they originally
+        passed in, since keyword forms like "largest"/"smallest" only
+        resolve to an actual label here, after `_resolve_baseline_group`
+        has run.
     surv_df0, surv_df1 : pandas.DataFrame
         "time"/"event" subsets for group 0 and group 1 respectively.
     km0, km1 : SingleClassSurv
@@ -63,7 +72,11 @@ class BinaryClassSurv:
         covariate.
     hazard_dict : dict
         Hazard ratio, its 95% CI, p-value, formatted label, and a
-        plain-English interpretation.
+        plain-English interpretation. `hazard_dict["baseline_group"]` is
+        always equal to `self.baseline_label` (see above) -- it reflects
+        whichever group was actually resolved as baseline, regardless of
+        whether `baseline_group` was passed as a keyword or an explicit
+        label.
 
     Raises
     ------
@@ -120,7 +133,15 @@ class BinaryClassSurv:
         self.surv_df0 = surv_df_binary[mask][["time", "event"]].copy()
         self.surv_df1 = surv_df_binary[~mask][["time", "event"]].copy()
 
-        self._baseline_idx = self._resolve_baseline_group(baseline_group)
+        # Single source of truth for "which group is baseline" -- resolved
+        # once, here, from whatever form `baseline_group` was passed in
+        # (keyword or explicit label). Every downstream consumer
+        # (hazard_dict, plotting, callers like MinimumPValue) should read
+        # `self.baseline_label` / `self.baseline_idx` rather than
+        # re-deriving it, so there is never a second, possibly
+        # inconsistent, notion of "baseline" floating around.
+        self.baseline_idx = self._resolve_baseline_group(baseline_group)
+        self.baseline_label = self.group_labels[self.baseline_idx]
 
         self._create_log_rank_dict()
         self._create_hazard_dict(censoring=censoring)
@@ -179,12 +200,14 @@ class BinaryClassSurv:
         self.log_rank_dict = log_rank_dict
 
     def _create_hazard_dict(self, censoring: str = "right"):
-        baseline_group = self._baseline_idx
-        baseline_label = self.group_labels[baseline_group]
-        other_label = self.group_labels[1 - baseline_group]
+        # Read from the single resolved source of truth set in __init__,
+        # rather than re-resolving baseline_group here.
+        baseline_idx = self.baseline_idx
+        baseline_label = self.baseline_label
+        other_label = self.group_labels[1 - baseline_idx]
 
         prefix = "group"
-        
+
         cox_ph_df = self.surv_df_binary.copy()
         cox_ph_df[self.target_col_name] = cox_ph_df[self.target_col_name].astype("category")
         cox_ph_df = pd.get_dummies(
@@ -200,7 +223,7 @@ class BinaryClassSurv:
                 f"means the category value isn't a clean string. Got "
                 f"columns: {list(cox_ph_df.columns)}"
             )
-        
+
         cox_ph_df = cox_ph_df.drop(columns=[baseline_col_name])
 
         self.cph = CoxPHFitter(alpha=self.alpha)
@@ -226,6 +249,9 @@ class BinaryClassSurv:
         hr_ci = [row["exp(coef) lower 95%"], row["exp(coef) upper 95%"]]
 
         hazard_dict = {
+            # Guaranteed identical to self.baseline_label -- this is the
+            # actual resolved category, never the raw "largest"/"smallest"
+            # keyword the caller may have passed in.
             "baseline_group": baseline_label,
             "hr": hr,
             "hr_ci": hr_ci,
@@ -300,7 +326,6 @@ class BinaryClassSurv:
                 labels=[self.group_labels[0], self.group_labels[1]],
             )
             fig.subplots_adjust(left=0.2, bottom=0.3)
-            #plt.subplots_adjust(left=0.2, bottom=0.3)
 
         if print_hazard_stats:
             if hazard_dict is None:

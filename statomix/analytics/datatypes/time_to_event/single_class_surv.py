@@ -182,6 +182,7 @@ class SingleClassSurv:
         self.descriptives["median_survival"] = self._get_median_survival()
         self.descriptives["median_follow_up"] = self._get_median_follow_up()
         self.descriptives["Surv Probability"] = {}
+        self.descriptives["rmst"] = {}
 
     def _require_fitted(self) -> None:
         """Defensive guard: raise a clear RuntimeError if `_fit()` has not
@@ -369,8 +370,90 @@ class SingleClassSurv:
             rmst_dict["bootstrap_label"] = f"{mean_rmst:.2f} (95% CI, {ci[0]:.2f} - {ci[1]:.2f})"
             rmst_dict["label"] = f"{rmst_dict['rmst']:.2f} (95% CI, {ci[0]:.2f} - {ci[1]:.2f})"
 
-        self.descriptives["rmst"] = rmst_dict
+        self.descriptives["rmst"][restricted_time] = rmst_dict
         return rmst_dict
+
+    # def plot_km_curve(
+    #     self,
+    #     table_title: str = "Risk Table",
+    #     xlabel: str = "Time (Months)",
+    #     ylabel: str = "Survival Probability",
+    #     plot: bool = True,
+    #     title: str | None = None,
+    #     savepath: str | None = None,
+    #     plot_grid: bool = True,
+    #     x_axis_range=None,
+    #     add_risk_table: bool = True,
+    #     plot_whole_y_axis: bool = True,
+    #     print_median_survival: bool = True,
+    # ) -> None:
+    #     """Plot the Kaplan-Meier curve with a 50% reference line, optional
+    #     at-risk table, and optional median-survival annotation.
+
+    #     Parameters
+    #     ----------
+    #     xlabel : str, default "Time (Months)"
+    #         NOTE: this default assumes time is recorded in months (it also
+    #         drives the default tick spacing of 12 units, below). If your
+    #         "time" column uses a different unit, pass a matching `xlabel`
+    #         and `x_axis_range`.
+    #     x_axis_range : iterable, optional
+    #         Defaults to `range(0, int(max_observed_time) + 1, 12)`, i.e.
+    #         ticks every 12 time units -- sensible for monthly data, not for
+    #         other units. Override explicitly for non-monthly time scales.
+    #     savepath : str, optional
+    #         If given, save the figure to this path via `plt.savefig`.
+
+    #     Raises
+    #     ------
+    #     RuntimeError
+    #         If called before `_fit()` has run.
+    #     """
+    #     self._require_fitted()
+
+    #     self.kmf.plot_survival_function(ci_show=False, legend=False)
+
+    #     plt.xlabel(xlabel)
+    #     plt.ylabel(ylabel)
+
+    #     if title is not None:
+    #         plt.title(title)
+
+    #     if plot_whole_y_axis:
+    #         plt.ylim(0, 1)
+
+    #     if plot_grid:
+    #         plt.grid(True)
+
+    #     if x_axis_range is None:
+    #         max_time = self.kmf.event_table.index[-1]
+    #         x_axis_range = range(0, int(max_time) + 1, 12)
+
+    #     plt.xticks(x_axis_range)
+
+    #     plt.axhline(y=0.5, color="red", linestyle="--")
+
+    #     if print_median_survival:
+    #         plt.text(
+    #             0.05,
+    #             0.15,
+    #             f"Median survival, {self.descriptives['median_survival']}",
+    #             fontsize=9,
+    #             verticalalignment="top",
+    #         )
+
+    #     if add_risk_table:
+    #         add_at_risk_counts(self.kmf, labels=[table_title])
+
+    #     plt.tight_layout()
+
+    #     if savepath is not None:
+    #         plt.savefig(savepath)
+
+    #     if plot:
+    #         plt.show()
+    #     else:
+    #         plt.close()
 
     def plot_km_curve(
         self,
@@ -388,7 +471,7 @@ class SingleClassSurv:
     ) -> None:
         """Plot the Kaplan-Meier curve with a 50% reference line, optional
         at-risk table, and optional median-survival annotation.
-
+ 
         Parameters
         ----------
         xlabel : str, default "Time (Months)"
@@ -402,36 +485,40 @@ class SingleClassSurv:
             other units. Override explicitly for non-monthly time scales.
         savepath : str, optional
             If given, save the figure to this path via `plt.savefig`.
-
+ 
         Raises
         ------
         RuntimeError
             If called before `_fit()` has run.
         """
         self._require_fitted()
-
+ 
         self.kmf.plot_survival_function(ci_show=False, legend=False)
-
+ 
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
-
+ 
         if title is not None:
             plt.title(title)
-
+ 
         if plot_whole_y_axis:
             plt.ylim(0, 1)
-
+ 
         if plot_grid:
             plt.grid(True)
-
+ 
         if x_axis_range is None:
             max_time = self.kmf.event_table.index[-1]
             x_axis_range = range(0, int(max_time) + 1, 12)
-
+ 
+        # Make x_axis_range concrete (it may be a `range` object) so the
+        # same list of tick values can be reused below for both the
+        # visible axis ticks and the at-risk table's column positions.
+        x_axis_range = list(x_axis_range)
         plt.xticks(x_axis_range)
-
+ 
         plt.axhline(y=0.5, color="red", linestyle="--")
-
+ 
         if print_median_survival:
             plt.text(
                 0.05,
@@ -440,16 +527,27 @@ class SingleClassSurv:
                 fontsize=9,
                 verticalalignment="top",
             )
-
+ 
         if add_risk_table:
-            add_at_risk_counts(self.kmf, labels=[table_title])
-
+            # IMPORTANT: pass `xticks=x_axis_range` explicitly. Without
+            # it, add_at_risk_counts reads whatever `ax.get_xticks()`
+            # happens to be at call time (lifelines source, plotting.py:
+            # `if xticks is None: xticks = ax.get_xticks()`), which can
+            # silently diverge from the `plt.xticks(x_axis_range)` call
+            # above once matplotlib's layout/autolocator re-runs (e.g.
+            # during tight_layout()). That mismatch is what produces a
+            # risk-table row with one column per *event time* instead of
+            # one column per intended tick -- the dense, overlapping
+            # table seen when this isn't pinned down explicitly.
+            add_at_risk_counts(self.kmf, labels=[table_title], xticks=x_axis_range)
+ 
         plt.tight_layout()
-
+ 
         if savepath is not None:
             plt.savefig(savepath)
-
+ 
         if plot:
             plt.show()
         else:
             plt.close()
+ 

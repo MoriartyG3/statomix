@@ -1,10 +1,13 @@
+import pandas as pd
 from pathlib import Path
 
 from fileverse.logger import Logger
 from fileverse.formats.yaml import BaseYAML
 from fileverse.formats.zarr import BaseZARR
+from fileverse.formats.excel import BaseExcel
 
 from statomix.pipelines.base import BasePipeline
+from statomix.analytics.datatypes.time_to_event.single_class_surv import SingleClassSurv
 
 from .group_analyzer import GroupAnalyzer
 
@@ -62,4 +65,53 @@ class Analyzer(BasePipeline):
             return
             
         group_analyzer.create_summary_report(path=summary_report_path)
+
+        self._create_surv_summary_report()
+
+    def _create_surv_summary_report(self, version=None, config_version=None):
+        group_bundle = self._get_group_bundle(version=version, config_version=config_version)
+        group_analyzer = self._get_group_analyzer(version=version, config_version=config_version)
+        
+        surv_group = group_bundle['config']['group'].require_group("surv")
+        km_plots_group = surv_group.require_group("km_plots")
+        
+        plots_dir = BaseZARR.get_abs_path(km_plots_group)
+        surv_dir = BaseZARR.get_abs_path(surv_group)
+        
+        df = group_analyzer._get_df()
+        surv_pairs = group_analyzer._get_surv_pairs()
+        
+        descriptives = []
+        for surv_label, surv_pair in surv_pairs.pairs.items():
+            surv_df = df[[surv_pair.time_profile.col_name, surv_pair.event_profile.col_name]]
+            surv_df = surv_df.rename(columns={
+                surv_pair.time_profile.col_name: "time",
+                surv_pair.event_profile.col_name: "event"
+            })
+            
+            #surv_df['event'] = surv_df['event'].map({'0.0': False, '1.0': True}).astype(bool)
+            surv_df['event'] = surv_df['event'].astype(float).astype(int)
+            surv_df['event'] = surv_df['event'].astype(str).map({'0': False, '1': True})
+            # if surv_df['event'].isna().any():
+            #     raise ValueError(f"Unmapped event values for {surv_label}: {surv_pair.event_profile.col_name}")
+            # surv_df['event'] = surv_df['event'].astype(bool)
+            scs = SingleClassSurv(surv_label=surv_label, surv_df=surv_df)
+            
+            savepath =  plots_dir/f"{surv_label}.png"
+            scs.plot_km_curve(title=surv_label, savepath=savepath, plot_grid=False, plot=False)
+        
+            time_points = [12,24,36,48,60]
+            for time_point in time_points:
+                _ = scs.get_survival_probability(time_point=time_point)
+                _ = scs.get_rmst(restricted_time=time_point)
+            
+            descriptive_dict = pd.json_normalize(scs.descriptives).iloc[0].to_dict()
+            descriptive_dict["surv_label"] = surv_label  
+        
+            descriptives.append(descriptive_dict)
+        
+        descriptives_df = pd.DataFrame(descriptives).set_index(["surv_label"])
+        
+        descriptives_df.to_excel(surv_dir/"descriptives.xlsx")
+        BaseExcel.format_cell_length(path=surv_dir/"descriptives.xlsx")
         

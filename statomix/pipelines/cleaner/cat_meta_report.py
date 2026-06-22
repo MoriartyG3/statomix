@@ -45,7 +45,9 @@ class CatMetaEditSchema:
         categorical_rows = []
         for col_name, categories in self.cat_edits.items():
             for category, categorical_edit in categories.items():
-                categorical_rows.append(categorical_edit.to_dict())
+                row_dict = categorical_edit.to_dict()
+                row_dict["category"] = str(row_dict["category"])
+                categorical_rows.append(row_dict)
 
         pd.DataFrame(categorical_rows).to_parquet(path=path)
 
