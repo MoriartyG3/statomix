@@ -80,32 +80,9 @@ class SingleClassSurv:
         Maximum observed "time" value in the cleaned data. Used as the
         default truncation point for RMST.
     descriptives : dict
-        Populated by `_fit()`. Holds both formatted strings and raw
-        (unformatted) numeric values for median survival, median
-        follow-up, survival probabilities at requested time points, and
-        (if requested) RMST.
-
-        "median_survival" and "median_follow_up" are each a dict:
-            {"label": "<formatted string>",
-             "raw": {"median": float, "ci_lower": float, "ci_upper": float}}
-        where "raw" values use `np.inf` (not the string "not reached")
-        for any bound the KM curve never crossed -- check with
-        `np.isfinite(...)` downstream rather than string-matching.
-
-        "Surv Probability" is a dict keyed by the requested time point,
-        each value shaped like:
-            {"label": "<formatted string>",
-             "raw": {"survival_prob": float, "ci_lower": float, "ci_upper": float}}
-        using `np.nan` (not `np.inf`) for time points outside the
-        observed range, since that's a genuinely unknown value rather
-        than "later than anything observed".
-
-        "rmst" is a dict keyed by `restricted_time`, with the shape
-        returned by `get_rmst()` (see that method's docstring) -- this
-        one keeps its original flatter shape ("rmst", "95% ci", etc. as
-        top-level keys) rather than the {"label", "raw"} nesting used
-        above, since RMST already separates its raw numeric values from
-        the optional formatted "label"/"bootstrap_label" strings.
+        Populated by `_fit()`. Holds formatted strings for median survival,
+        median follow-up, survival probabilities at requested time points,
+        and (if requested) RMST.
 
     Raises
     ------
@@ -185,13 +162,9 @@ class SingleClassSurv:
         """Fit the Kaplan-Meier curve and compute the standard descriptives.
 
         Populates `self.kmf` and `self.descriptives` with:
-            - "median_survival": dict with "label" (formatted string) and
-              "raw" (dict of unformatted floats: "median", "ci_lower",
-              "ci_upper"; "not reached" is represented as `np.inf` in
-              "raw", never as a string).
-            - "median_follow_up": same shape as "median_survival", for the
-              median potential follow-up time (reverse Kaplan-Meier /
-              Schemper-Smith method).
+            - "median_survival": median survival time + 95% CI, as a string.
+            - "median_follow_up": median potential follow-up time + 95% CI
+              (reverse Kaplan-Meier / Schemper-Smith method), as a string.
             - "Surv Probability": empty dict, filled in by calls to
               `get_survival_probability(time_point)`.
 
@@ -228,51 +201,18 @@ class SingleClassSurv:
             )
 
     @staticmethod
-    def _format_median(median_value: float, ci_lower: float, ci_upper: float) -> dict:
+    def _format_median(median_value: float, ci_lower: float, ci_upper: float) -> str:
         """Format a median + 95% CI, handling the case where the median
         survival was never reached (median_value is +inf because the KM
-        curve never drops to 50%).
-
-        Returns
-        -------
-        dict
-            "label": the formatted display string, e.g.
-                "86.73 (95% CI, 82.80 - not reached)".
-            "raw": dict with the unformatted float values --
-                {"median": ..., "ci_lower": ..., "ci_upper": ...} -- each
-                either a plain float or `np.inf` (never the string "not
-                reached"). `np.inf` is used rather than `np.nan` because
-                an unreached median is a real, well-defined concept
-                ("later than anything observed"), distinct from a missing
-                or invalid value. Use `np.isfinite(...)` downstream to
-                detect "not reached" in the raw values, exactly as this
-                method does internally.
-        """
+        curve never drops to 50%)."""
         median_str = "not reached" if not np.isfinite(median_value) else f"{median_value:.2f}"
         lower_str = "not reached" if not np.isfinite(ci_lower) else f"{ci_lower:.2f}"
         upper_str = "not reached" if not np.isfinite(ci_upper) else f"{ci_upper:.2f}"
-        label = f"{median_str} (95% CI, {lower_str} - {upper_str})"
+        return f"{median_str} (95% CI, {lower_str} - {upper_str})"
 
-        return {
-            "label": label,
-            "raw": {
-                "median": float(median_value),
-                "ci_lower": float(ci_lower),
-                "ci_upper": float(ci_upper),
-            },
-        }
-
-    def _get_median_survival(self) -> dict:
+    def _get_median_survival(self) -> str:
         """Median survival time (time at which the KM curve crosses 50%
-        survival probability), with its 95% confidence interval.
-
-        Returns
-        -------
-        dict
-            Same shape as `_format_median`'s return value: a "label"
-            string and a "raw" dict of unformatted floats (using
-            `np.inf` for "not reached").
-        """
+        survival probability), with its 95% confidence interval."""
         median_survival = self.kmf.median_survival_time_
         median_ci = median_survival_times(self.kmf.confidence_interval_)
 
@@ -281,7 +221,7 @@ class SingleClassSurv:
 
         return self._format_median(median_survival, ci_lower, ci_upper)
 
-    def get_survival_probability(self, time_point: float) -> dict:
+    def get_survival_probability(self, time_point: float) -> None:
         """Estimate the survival probability at `time_point`, with its 95%
         confidence interval, and store it in
         `self.descriptives["Surv Probability"][time_point]`.
@@ -292,13 +232,6 @@ class SingleClassSurv:
         `time_point`s outside the observed time range are recorded as NaN
         rather than extrapolated, since KM provides no information beyond
         the last observation.
-
-        Stores a dict with "label" (formatted string) and "raw" (dict of
-        unformatted floats: "survival_prob", "ci_lower", "ci_upper";
-        `np.nan` for out-of-range `time_point`s -- distinct from the
-        `np.inf`/"not reached" convention used by the median getters,
-        since an out-of-range probability isn't "later than observed", it
-        is genuinely unknown).
         """
         self._require_fitted()
 
@@ -312,20 +245,13 @@ class SingleClassSurv:
             ci_lower = ci_df[f"{self.kmf.label}_lower_0.95"].asof(time_point)
             ci_upper = ci_df[f"{self.kmf.label}_upper_0.95"].asof(time_point)
 
-        label = f"{round(survival_prob, 2)} (95% CI, {ci_lower:.2f} - {ci_upper:.2f})"
-
-        self.descriptives["Surv Probability"][time_point] = {
-            "label": label,
-            "raw": {
-                "survival_prob": float(survival_prob),
-                "ci_lower": float(ci_lower),
-                "ci_upper": float(ci_upper),
-            },
-        }
+        self.descriptives["Surv Probability"][time_point] = (
+            f"{round(survival_prob, 2)} (95% CI, {ci_lower:.2f} - {ci_upper:.2f})"
+        )
 
         return self.descriptives
 
-    def _get_median_follow_up(self) -> dict:
+    def _get_median_follow_up(self) -> str:
         """Median potential follow-up time, via the reverse Kaplan-Meier
         (Schemper & Smith, 1996) method.
 
@@ -339,13 +265,6 @@ class SingleClassSurv:
         median of the raw "time" column, which is biased downward because
         it ignores the fact that event times themselves are also a form of
         truncated observation).
-
-        Returns
-        -------
-        dict
-            Same shape as `_format_median`'s return value: a "label"
-            string and a "raw" dict of unformatted floats (using
-            `np.inf` for "not reached").
         """
         label = f"{self.surv_label} Follow-Up"
         followup_kmf = KaplanMeierFitter()
@@ -454,6 +373,88 @@ class SingleClassSurv:
         self.descriptives["rmst"][restricted_time] = rmst_dict
         return rmst_dict
 
+    # def plot_km_curve(
+    #     self,
+    #     table_title: str = "Risk Table",
+    #     xlabel: str = "Time (Months)",
+    #     ylabel: str = "Survival Probability",
+    #     plot: bool = True,
+    #     title: str | None = None,
+    #     savepath: str | None = None,
+    #     plot_grid: bool = True,
+    #     x_axis_range=None,
+    #     add_risk_table: bool = True,
+    #     plot_whole_y_axis: bool = True,
+    #     print_median_survival: bool = True,
+    # ) -> None:
+    #     """Plot the Kaplan-Meier curve with a 50% reference line, optional
+    #     at-risk table, and optional median-survival annotation.
+
+    #     Parameters
+    #     ----------
+    #     xlabel : str, default "Time (Months)"
+    #         NOTE: this default assumes time is recorded in months (it also
+    #         drives the default tick spacing of 12 units, below). If your
+    #         "time" column uses a different unit, pass a matching `xlabel`
+    #         and `x_axis_range`.
+    #     x_axis_range : iterable, optional
+    #         Defaults to `range(0, int(max_observed_time) + 1, 12)`, i.e.
+    #         ticks every 12 time units -- sensible for monthly data, not for
+    #         other units. Override explicitly for non-monthly time scales.
+    #     savepath : str, optional
+    #         If given, save the figure to this path via `plt.savefig`.
+
+    #     Raises
+    #     ------
+    #     RuntimeError
+    #         If called before `_fit()` has run.
+    #     """
+    #     self._require_fitted()
+
+    #     self.kmf.plot_survival_function(ci_show=False, legend=False)
+
+    #     plt.xlabel(xlabel)
+    #     plt.ylabel(ylabel)
+
+    #     if title is not None:
+    #         plt.title(title)
+
+    #     if plot_whole_y_axis:
+    #         plt.ylim(0, 1)
+
+    #     if plot_grid:
+    #         plt.grid(True)
+
+    #     if x_axis_range is None:
+    #         max_time = self.kmf.event_table.index[-1]
+    #         x_axis_range = range(0, int(max_time) + 1, 12)
+
+    #     plt.xticks(x_axis_range)
+
+    #     plt.axhline(y=0.5, color="red", linestyle="--")
+
+    #     if print_median_survival:
+    #         plt.text(
+    #             0.05,
+    #             0.15,
+    #             f"Median survival, {self.descriptives['median_survival']}",
+    #             fontsize=9,
+    #             verticalalignment="top",
+    #         )
+
+    #     if add_risk_table:
+    #         add_at_risk_counts(self.kmf, labels=[table_title])
+
+    #     plt.tight_layout()
+
+    #     if savepath is not None:
+    #         plt.savefig(savepath)
+
+    #     if plot:
+    #         plt.show()
+    #     else:
+    #         plt.close()
+
     def plot_km_curve(
         self,
         table_title: str = "Risk Table",
@@ -522,7 +523,7 @@ class SingleClassSurv:
             plt.text(
                 0.05,
                 0.15,
-                f"Median survival, {self.descriptives['median_survival']['label']}",
+                f"Median survival, {self.descriptives['median_survival']}",
                 fontsize=9,
                 verticalalignment="top",
             )
@@ -549,3 +550,4 @@ class SingleClassSurv:
             plt.show()
         else:
             plt.close()
+ 

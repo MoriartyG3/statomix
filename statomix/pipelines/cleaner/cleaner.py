@@ -115,7 +115,7 @@ class Cleaner:
         )
         version_meta = version_group.attrs["meta"]
 
-        base_path = BaseZARR.get_abs_path(zarr_group=version_group)
+        base_path = BaseZARR.get_abs_path(group=version_group)
         col_report_path = base_path / "col_report.xlsx"
         col_profiles_path = base_path / "col_profiles.parquet"
         if col_report_path.exists() and not create_new:
@@ -150,7 +150,7 @@ class Cleaner:
         )
         version_meta = version_group.attrs["meta"]
 
-        base_path = BaseZARR.get_abs_path(zarr_group=version_group)
+        base_path = BaseZARR.get_abs_path(group=version_group)
 
         col_report_curated_path = base_path / "col_report_curated.xlsx"
         if not col_report_curated_path.exists():
@@ -203,7 +203,7 @@ class Cleaner:
         version_group = self.get_version_group(
             version=version, create_new=False, version_name=None
         )
-        req_base_path = BaseZARR.get_abs_path(zarr_group=version_group)
+        req_base_path = BaseZARR.get_abs_path(group=version_group)
 
         config_version_group = self.get_config_version_group(
             config_version=config_version,
@@ -213,7 +213,7 @@ class Cleaner:
         )
         config_version_meta = config_version_group.attrs["meta"]
 
-        base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
+        base_path = BaseZARR.get_abs_path(group=config_version_group)
 
         col_profiles_curated_path = req_base_path / "col_profiles_curated.parquet"
         col_profiles_curated = self.col_report.load_col_profiles(
@@ -259,7 +259,7 @@ class Cleaner:
         
         config_version_meta = config_version_group.attrs["meta"]
     
-        base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
+        base_path = BaseZARR.get_abs_path(group=config_version_group)
         meta_edit_schema_path = base_path/"cat_meta_edit_schema.parquet"
     
         if meta_edit_schema_path.exists():
@@ -279,7 +279,7 @@ class Cleaner:
         version_group = self.get_version_group(
             version=version, create_new=False, version_name=None
         )
-        req_base_path = BaseZARR.get_abs_path(zarr_group=version_group)
+        req_base_path = BaseZARR.get_abs_path(group=version_group)
         
         config_version_group = self.get_config_version_group(
             config_version=config_version,
@@ -287,7 +287,7 @@ class Cleaner:
             config_name=None,
             create_new=False
         )
-        base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
+        base_path = BaseZARR.get_abs_path(group=config_version_group)
 
         surv_profiles_path = base_path/ "surv_profiles.parquet"
         meta_report_path = base_path / "surv_meta_report.xlsx"
@@ -316,7 +316,7 @@ class Cleaner:
         version_group = self.get_version_group(
             version=version, create_new=False, version_name=None
         )
-        req_base_path = BaseZARR.get_abs_path(zarr_group=version_group)
+        req_base_path = BaseZARR.get_abs_path(group=version_group)
         
         config_version_group = self.get_config_version_group(
             config_version=config_version,
@@ -324,7 +324,7 @@ class Cleaner:
             config_name=None,
             create_new=False
         )
-        base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
+        base_path = BaseZARR.get_abs_path(group=config_version_group)
         
         surv_pairs_path = base_path/"surv_pairs.parquet"
         surv_profiles_path = base_path/ "surv_profiles.parquet"
@@ -554,7 +554,7 @@ class Cleaner:
         
     #     config_version_meta = config_version_group.attrs["meta"]
         
-    #     base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
+    #     base_path = BaseZARR.get_abs_path(group=config_version_group)
     #     meta_edit_schema_path = base_path/"meta_schema.xlsx"
     
     #     if meta_edit_schema_path.exists():
@@ -658,7 +658,7 @@ class Cleaner:
     #         version=version, create_new=False, version_name=None
     #     )
         
-    #     req_base_path = BaseZARR.get_abs_path(zarr_group=version_group)
+    #     req_base_path = BaseZARR.get_abs_path(group=version_group)
     #     col_profiles_curated_path = req_base_path / "col_profiles_curated.parquet"
         
     #     config_version_group = self.get_config_version_group(
@@ -668,7 +668,7 @@ class Cleaner:
     #         create_new=False,
     #     )
         
-    #     base_path = BaseZARR.get_abs_path(zarr_group=config_version_group)
+    #     base_path = BaseZARR.get_abs_path(group=config_version_group)
     #     meta_edit_schema_path = base_path / "meta_schema.xlsx"
         
     #     meta_edit_schema = MetaEditSchema.load(path=meta_edit_schema_path)

@@ -13,9 +13,9 @@ class BasePipeline(ABC):
             self.meta["version_history"] = [1]
             self._save_meta()
 
-        self._zarr_group_cache = {}
-        self._zarr_group_cache["version"] = {}
-        self._zarr_group_cache["config"] = {}
+        self._group_cache = {}
+        self._group_cache["version"] = {}
+        self._group_cache["config"] = {}
 
     @abstractmethod
     def _get_default_version_meta(self):
@@ -85,8 +85,8 @@ class BasePipeline(ABC):
             # cache. Checking before resolving the final version number
             # could look up the wrong (stale) key.
             cache_key = f"version{version}"
-            if cache_key in self._zarr_group_cache["version"]:
-                return self._zarr_group_cache["version"][cache_key]
+            if cache_key in self._group_cache["version"]:
+                return self._group_cache["version"][cache_key]
 
             if version == 1:
                 version_group = self.root_group.require_group(f"version{version}")
@@ -114,7 +114,7 @@ class BasePipeline(ABC):
 
             version_group.attrs["meta"] = version_meta
 
-        self._zarr_group_cache["version"][f"version{version}"] = version_group
+        self._group_cache["version"][f"version{version}"] = version_group
 
         return version_group
 
@@ -150,8 +150,8 @@ class BasePipeline(ABC):
 
             # Resolve the cache key only after "version" is fully resolved.
             cache_key = f"version{version_meta['version']}_config{version}"
-            if cache_key in self._zarr_group_cache["config"]:
-                return self._zarr_group_cache["config"][cache_key]
+            if cache_key in self._group_cache["config"]:
+                return self._group_cache["config"][cache_key]
 
             if version == 1:
                 config_group = version_group.require_group(
@@ -179,7 +179,7 @@ class BasePipeline(ABC):
 
             config_group.attrs["meta"] = config_meta
 
-        self._zarr_group_cache["config"][
+        self._group_cache["config"][
             f"version{version_meta['version']}_config{version}"
         ] = config_group
 

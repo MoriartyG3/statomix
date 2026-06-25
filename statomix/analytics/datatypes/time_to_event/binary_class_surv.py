@@ -6,8 +6,12 @@ from lifelines import CoxPHFitter
 from lifelines.statistics import logrank_test
 from lifelines.plotting import add_at_risk_counts
 
+from fileverse.logger import Logger
+
 from .single_class_surv import SingleClassSurv
 from .formatting import get_p_value_label, interpret_hazard_ratio
+
+logger = Logger(name="BinaryClassSurv").get_logger()
 
 
 class BinaryClassSurv:
@@ -70,9 +74,9 @@ class BinaryClassSurv:
     cph : lifelines.CoxPHFitter
         Fitted Cox model with the grouping variable as the single
         covariate.
-    hazard_dict : dict
+    cox_ph_dict : dict
         Hazard ratio, its 95% CI, p-value, formatted label, and a
-        plain-English interpretation. `hazard_dict["baseline_group"]` is
+        plain-English interpretation. `cox_ph_dict["baseline_group"]` is
         always equal to `self.baseline_label` (see above) -- it reflects
         whichever group was actually resolved as baseline, regardless of
         whether `baseline_group` was passed as a keyword or an explicit
@@ -102,17 +106,23 @@ class BinaryClassSurv:
             raise ValueError(
                 f"surv_df_binary is missing required column(s): {sorted(missing)}"
             )
-
         self.alpha = alpha
-        self.surv_label = surv_label
+        # self.cox_ph_dict = {"not_created": "method self.create_cox_ph_dict() not called."}
+        # self.log_rank_dict = {"not_created": "method self.create_log_rank_dcit() not called."}
         self.censoring = censoring
+        self.surv_label = surv_label
 
-        grouping_cols = [c for c in surv_df_binary.columns if c not in ("time", "event")]
+        grouping_cols = [
+            c for c in surv_df_binary.columns if c not in ("time", "event")
+        ]
         if len(grouping_cols) != 1:
-            raise ValueError(
+            error_msg = (
                 "Expected exactly one grouping column besides 'time'/'event', "
-                f"found {len(grouping_cols)}: {grouping_cols}"
+                + f"\nfound {len(grouping_cols)}: {grouping_cols}"
             )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
         target_col_name = grouping_cols[0]
 
         # first-seen order; deterministic given the input, but NOTE this
@@ -133,18 +143,73 @@ class BinaryClassSurv:
         self.surv_df0 = surv_df_binary[mask][["time", "event"]].copy()
         self.surv_df1 = surv_df_binary[~mask][["time", "event"]].copy()
 
+        self._checks_group_split_validity()
+
         # Single source of truth for "which group is baseline" -- resolved
         # once, here, from whatever form `baseline_group` was passed in
         # (keyword or explicit label). Every downstream consumer
-        # (hazard_dict, plotting, callers like MinimumPValue) should read
+        # (cox_ph_dict, plotting, callers like MinimumPValue) should read
         # `self.baseline_label` / `self.baseline_idx` rather than
         # re-deriving it, so there is never a second, possibly
         # inconsistent, notion of "baseline" floating around.
         self.baseline_idx = self._resolve_baseline_group(baseline_group)
         self.baseline_label = self.group_labels[self.baseline_idx]
 
-        self._create_log_rank_dict()
-        self._create_hazard_dict(censoring=censoring)
+        # self._create_log_rank_dict()
+        # self._create_cox_ph_dict()
+
+    def _checks_group_split_validity(self):
+        group0_n = len(self.surv_df0)
+        group1_n = len(self.surv_df1)
+
+        group0_events = self.surv_df0["event"].sum()
+        group1_events = self.surv_df1["event"].sum()
+
+        group0_censored = group0_n - group0_events
+        group1_censored = group1_n - group1_events
+
+        self.split_valid = True
+        self.split_invalid_reason = None
+
+        if group0_n <= 1 or group1_n <= 1:
+            self.split_valid = False
+            self.split_invalid_reason = "group_size_1"
+            logger.warning(
+                f"[INVALID SPLIT] {self.split_invalid_reason}: "
+                f"group0_n={group0_n}, group1_n={group1_n}"
+            )
+
+        elif group0_events == 0 or group1_events == 0:
+            self.split_valid = False
+            self.split_invalid_reason = "no_events"
+            logger.warning(
+                f"[INVALID SPLIT] {self.split_invalid_reason}: "
+                f"group0_events={group0_events}, group1_events={group1_events}"
+            )
+
+        elif group0_censored == 0 or group1_censored == 0:
+            self.split_valid = False
+            self.split_invalid_reason = "no_censoring"
+            logger.warning(
+                f"[INVALID SPLIT] {self.split_invalid_reason}: "
+                f"group0_censored={group0_censored}, group1_censored={group1_censored}"
+            )
+
+        # elif group0_n < 10 or group1_n < 10:
+        #     self.split_valid = False
+        #     self.split_invalid_reason = "small_group"
+        #     print(
+        #         f"[INVALID SPLIT] {self.split_invalid_reason}: "
+        #         f"group0_n={group0_n}, group1_n={group1_n}"
+        #     )
+
+        # elif group0_events < 5 or group1_events < 5:
+        #     self.split_valid = False
+        #     self.split_invalid_reason = "too_few_events"
+        #     print(
+        #         f"[INVALID SPLIT] {self.split_invalid_reason}: "
+        #         f"group0_events={group0_events}, group1_events={group1_events}"
+        #     )
 
     def _resolve_baseline_group(self, baseline_group) -> int:
         """Resolve the `baseline_group` argument to 0 or 1 (an index into
@@ -169,14 +234,31 @@ class BinaryClassSurv:
             if label == baseline_group:
                 return idx
 
-        raise ValueError(
+        error_msg = (
             f"baseline_group={baseline_group!r} is not a recognized keyword "
-            f"({self._BASELINE_KEYWORDS}) and does not match either category "
-            f"found in '{self.target_col_name}': "
-            f"{[self.group_labels[0], self.group_labels[1]]}"
+            + f"\n({self._BASELINE_KEYWORDS}) and does not match either category"
+            + f"\nfound in '{self.target_col_name}': "
+            + f"\n{[self.group_labels[0], self.group_labels[1]]}"
         )
 
-    def _create_log_rank_dict(self):
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    def get_tests_dict(self):
+        tests_dict = getattr(self, "tests_dict", None)
+        if tests_dict is not None:
+            return tests_dict
+        
+        split_ratio = self.surv_df0.shape[0]/self.surv_df1.shape[0]
+        tests_dict = {}
+        tests_dict["split_ratio"] = split_ratio
+        tests_dict["cox_ph"] = self.get_cox_ph_dict()
+        tests_dict["log_rank"] =  self.get_log_rank_dict()
+        
+        self.tests_dict = tests_dict
+        return tests_dict
+        
+    def get_log_rank_dict(self):
         self.km0 = SingleClassSurv(surv_label=self.surv_label, surv_df=self.surv_df0)
         self.km1 = SingleClassSurv(surv_label=self.surv_label, surv_df=self.surv_df1)
 
@@ -189,19 +271,43 @@ class BinaryClassSurv:
 
         log_rank_dict = {
             "p_value": log_rank_results.p_value,
+            
             "group0_n": self.surv_df0.shape[0],
             "group1_n": self.surv_df1.shape[0],
+            
             "group0_median_survival": self.km0.descriptives["median_survival"],
             "group1_median_survival": self.km1.descriptives["median_survival"],
+            
+            "group0_median_survival_raw": self.km0.descriptives['median_survival']['raw'],
+            "group1_median_survival_raw": self.km1.descriptives['median_survival']['raw'],
+            
             "group0_median_follow_up": self.km0.descriptives["median_follow_up"],
             "group1_median_follow_up": self.km1.descriptives["median_follow_up"],
+        
+            "group0_median_follow_up_raw": self.km0.descriptives['median_follow_up']['raw'],
+            "group1_median_follow_up_raw": self.km1.descriptives['median_follow_up']['raw'],
+            
         }
 
-        self.log_rank_dict = log_rank_dict
+        # self.log_rank_dict = log_rank_dict
+        return log_rank_dict
 
-    def _create_hazard_dict(self, censoring: str = "right"):
+    def get_cox_ph_dict(self):
         # Read from the single resolved source of truth set in __init__,
         # rather than re-resolving baseline_group here.
+
+        tests_dict = getattr(self, "tests_dict", None)
+        if tests_dict is not None:
+            return tests_dict["cox_ph"]
+        
+        if not self.split_valid:
+            logger.warning(f"[INVALID SPLIT] Group split not valid due to {self.split_invalid_reason}")
+            cox_ph_dict = {
+                "split_valid": self.split_valid,
+                "split_invalid_reason": self.split_invalid_reason,
+            }
+            return cox_ph_dict
+
         baseline_idx = self.baseline_idx
         baseline_label = self.baseline_label
         other_label = self.group_labels[1 - baseline_idx]
@@ -209,7 +315,9 @@ class BinaryClassSurv:
         prefix = "group"
 
         cox_ph_df = self.surv_df_binary.copy()
-        cox_ph_df[self.target_col_name] = cox_ph_df[self.target_col_name].astype("category")
+        cox_ph_df[self.target_col_name] = cox_ph_df[self.target_col_name].astype(
+            "category"
+        )
         cox_ph_df = pd.get_dummies(
             cox_ph_df, columns=[self.target_col_name], prefix_sep="_", prefix=prefix
         )
@@ -228,14 +336,16 @@ class BinaryClassSurv:
 
         self.cph = CoxPHFitter(alpha=self.alpha)
 
-        if censoring == "right":
+        if self.censoring == "right":
             self.cph.fit_right_censoring(
                 cox_ph_df,
                 duration_col="time",
                 event_col="event",
             )
         else:
-            raise NotImplementedError(f"Censoring type {censoring!r} not implemented.")
+            raise NotImplementedError(
+                f"Censoring type {self.censoring!r} not implemented."
+            )
 
         summary = self.cph.summary
         row_names = summary.index.tolist()
@@ -248,7 +358,7 @@ class BinaryClassSurv:
         hr = row["exp(coef)"]
         hr_ci = [row["exp(coef) lower 95%"], row["exp(coef) upper 95%"]]
 
-        hazard_dict = {
+        cox_ph_dict = {
             # Guaranteed identical to self.baseline_label -- this is the
             # actual resolved category, never the raw "largest"/"smallest"
             # keyword the caller may have passed in.
@@ -257,22 +367,23 @@ class BinaryClassSurv:
             "hr_ci": hr_ci,
             "p_value": row["p"],
         }
-        hazard_dict["label"] = (
-            f"Hazard ratio, {hazard_dict['hr']:.2f} "
-            f"(95% CI, {hazard_dict['hr_ci'][0]:.2f} - {hazard_dict['hr_ci'][1]:.2f})"
+        cox_ph_dict["label"] = (
+            f"Hazard ratio, {cox_ph_dict['hr']:.2f} "
+            f"(95% CI, {cox_ph_dict['hr_ci'][0]:.2f} - {cox_ph_dict['hr_ci'][1]:.2f})"
         )
-        hazard_dict["p_value_label"] = get_p_value_label(hazard_dict["p_value"])
-        hazard_dict["interpretation"] = interpret_hazard_ratio(
-            hazard_ratio=hazard_dict["hr"],
+        cox_ph_dict["p_value_label"] = get_p_value_label(cox_ph_dict["p_value"])
+        cox_ph_dict["interpretation"] = interpret_hazard_ratio(
+            hazard_ratio=cox_ph_dict["hr"],
             baseline_group_name=baseline_label,
             other_group_name=other_label,
         )
 
-        self.hazard_dict = hazard_dict
+        return cox_ph_dict
+        # self.cox_ph_dict = cox_ph_dict
 
     def plot_km_curves(
         self,
-        hazard_dict=None,
+        cox_ph_dict=None,
         print_hazard_stats=True,
         plot=True,
         title=None,
@@ -285,10 +396,10 @@ class BinaryClassSurv:
 
         Parameters
         ----------
-        hazard_dict : dict, optional
-            Defaults to `self.hazard_dict`. Lets a caller display a
+        cox_ph_dict : dict, optional
+            Defaults to `self.cox_ph_dict`. Lets a caller display a
             different HR (e.g. from a re-fit Cox model) without
-            overwriting `self.hazard_dict`.
+            overwriting `self.cox_ph_dict`.
         x_axis_range : iterable, optional
             Defaults to 12-unit ticks from 0 to the later of the two
             groups' max observed times -- assumes monthly time units.
@@ -328,13 +439,16 @@ class BinaryClassSurv:
             fig.subplots_adjust(left=0.2, bottom=0.3)
 
         if print_hazard_stats:
-            if hazard_dict is None:
-                hazard_dict = self.hazard_dict
+            if cox_ph_dict is None:
+                # print(
+                #     f"Print hazard stats is {print_hazard_stats} but Cox Ph dict is not passed calculating."
+                # )
+                cox_ph_dict = self.get_cox_ph_dict()
 
             plt.text(
                 x=0.05,
                 y=0.15,
-                s=hazard_dict["label"],
+                s=cox_ph_dict["label"],
                 transform=ax.transAxes,
                 fontsize=9,
                 verticalalignment="top",
@@ -342,7 +456,7 @@ class BinaryClassSurv:
             plt.text(
                 x=0.05,
                 y=0.10,
-                s=hazard_dict["p_value_label"],
+                s=cox_ph_dict["p_value_label"],
                 transform=ax.transAxes,
                 fontsize=9,
                 verticalalignment="top",

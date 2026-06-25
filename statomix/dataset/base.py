@@ -15,16 +15,16 @@ class BaseDataset:
 
     def _create_groups(self, root_group):
     
-        self.zarr_groups = {}
-        self.zarr_groups["root"] = root_group.require_group(self.dataset_name)
-        self.zarr_groups["df"] = self.zarr_groups["root"].require_group("df")
-        self.zarr_groups["cleaner"] = self.zarr_groups["root"].require_group("cleaner")
-        self.zarr_groups["analyzer"] = self.zarr_groups["root"].require_group("analyzer")
+        self.groups = {}
+        self.groups["root"] = root_group.require_group(self.dataset_name)
+        self.groups["df"] = self.groups["root"].require_group("df")
+        self.groups["cleaner"] = self.groups["root"].require_group("cleaner")
+        self.groups["analyzer"] = self.groups["root"].require_group("analyzer")
 
     def _create_paths(self):
         self.paths = {}
         self.paths['df'] = {}
-        self.paths['df']['source'] = BaseZARR.get_abs_path(zarr_group=self.zarr_groups["df"])/"source_df.parquet"
+        self.paths['df']['source'] = BaseZARR.get_abs_path(group=self.groups["df"])/"source_df.parquet"
 
     def _get_source_df(self):
         source_df_path = self.paths['df']['source']
@@ -58,7 +58,7 @@ class BaseDataset:
 
         if df is not None:
             df.to_parquet(path=source_df_path, index=False)
-            self.zarr_groups["df"].attrs["source_df_exists"] = True
+            self.groups["df"].attrs["source_df_exists"] = True
             logger.info(f"Successfully created and saved new data.")
             return
 
