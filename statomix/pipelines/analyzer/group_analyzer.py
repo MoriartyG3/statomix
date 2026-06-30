@@ -68,6 +68,19 @@ class GroupAnalyzer:
             
         return self.cache["datatype_map"]
 
+    def _get_datatype_map_df(self):
+        datatype_map = self._get_datatype_map()
+
+        datatype_df = pd.DataFrame({
+            k.value: pd.Series(v)
+            for k, v in datatype_map.items()
+        })
+
+        surv_pairs = self._get_surv_pairs()
+        datatype_df['Survival Labels'] = pd.Series(list(surv_pairs.pairs.keys()))
+
+        return datatype_df
+
     def get_cat_summary_df(self):
         
         df = self._get_df()

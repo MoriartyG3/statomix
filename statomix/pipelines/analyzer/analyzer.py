@@ -7,7 +7,7 @@ from fileverse.formats.zarr import BaseZARR
 from fileverse.formats.excel import BaseExcel
 
 from statomix.pipelines.base import BasePipeline
-from statomix.analytics.datatypes.time_to_event.single_class_surv import SingleClassSurv
+from statomix.analytics.datatypes.survival.single_class_surv import SingleClassSurv
 
 from .group_analyzer import GroupAnalyzer
 

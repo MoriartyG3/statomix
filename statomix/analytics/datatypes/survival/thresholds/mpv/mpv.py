@@ -7,7 +7,7 @@ from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
 from fileverse.clean_path_name import clean_path_name
 
-from statomix.analytics.datatypes.time_to_event.binary_class_surv import BinaryClassSurv
+from statomix.analytics.datatypes.survival.binary_class_surv import BinaryClassSurv
 
 logger = Logger(name="MinimumPValue").get_logger()
 
