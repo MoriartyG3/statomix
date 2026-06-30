@@ -38,64 +38,34 @@ class BinaryClassSurv:
     baseline_group : {"largest", "smallest", "first", "second"} or any
         actual category value found in the grouping column, default
         "largest".
-        Controls which group is used as the Cox-model reference level,
-        AND which group is anchored as "group0" everywhere else in this
-        class (group_labels[0], surv_df0, log_rank_dict["group0_*"],
-        etc.) -- see "Group identity" below.
+        Controls which group is used as the Cox-model reference level:
             - "largest"  -> the group with more observations (ties go to
-                             whichever category appears first in
-                             `.unique()`).
+                             the first-seen category).
             - "smallest" -> the group with fewer observations.
-            - "first"    -> the first-seen category in the data
-                             (`.unique()` order).
+            - "first"    -> the first-seen category in the data.
             - "second"   -> the second-seen category in the data.
             - any other value is matched against the actual category
               labels found in the grouping column, so you can pin the
               baseline explicitly, e.g. baseline_group="control".
-
-    Group identity
-    ----------
-    "group0" and "group1" are NOT determined by row order in
-    `surv_df_binary`. `baseline_group` is resolved first, against the
-    two category labels found in the data, and group0 is then defined
-    to *be* that resolved baseline label; group1 is whichever category
-    is left over. This means group0/group1 identity is a deterministic
-    function of the category labels (and counts, for the "largest"/
-    "smallest" keywords) -- never of which row happens to appear first
-    in the input DataFrame. (Earlier versions of this class fixed
-    group0/group1 from first-seen `.unique()` order *before* resolving
-    baseline_group, which made group0/group1 identity depend on row
-    order whenever the grouping column's values were themselves a
-    function of an external parameter, e.g. a scanned threshold -- the
-    first-seen category could flip from one call to the next even
-    though baseline_group was passed identically each time. That
-    dependency has been removed: group0 is always the resolved
-    baseline now.)
 
     Attributes
     ----------
     target_col_name : str
         Name of the grouping column.
     group_labels : dict
-        Maps {0: category0, 1: category1}. category0 is always the
-        resolved baseline label (see "Group identity" above); category1
-        is the other category.
+        Maps {0: category0, 1: category1} -- the two unique values found
+        in the grouping column, in first-seen order from `.unique()`.
     baseline_label : Any
         The actual category value (one of `group_labels.values()`) that
-        was resolved as the Cox-model reference level. Always equal to
-        `group_labels[0]`. This is the single source of truth for "which
-        group is baseline" -- callers should read this attribute rather
-        than re-deriving baseline group identity from the
-        `baseline_group` argument they originally passed in, since
-        keyword forms like "largest"/"smallest" only resolve to an
-        actual label here.
-    baseline_idx : int
-        Always 0, kept as an attribute (rather than hardcoding `0`
-        everywhere it's read) so downstream code that reads
-        `self.baseline_idx` doesn't need to change.
+        was resolved as the Cox-model reference level. This is the single
+        source of truth for "which group is baseline" -- callers should
+        read this attribute rather than re-deriving baseline group
+        identity from the `baseline_group` argument they originally
+        passed in, since keyword forms like "largest"/"smallest" only
+        resolve to an actual label here, after `_resolve_baseline_group`
+        has run.
     surv_df0, surv_df1 : pandas.DataFrame
-        "time"/"event" subsets for group 0 (baseline) and group 1
-        (other) respectively.
+        "time"/"event" subsets for group 0 and group 1 respectively.
     km0, km1 : SingleClassSurv
         Fitted KM models for each group.
     log_rank_dict : dict
@@ -156,10 +126,7 @@ class BinaryClassSurv:
         target_col_name = grouping_cols[0]
 
         # first-seen order; deterministic given the input, but NOTE this
-        # is only used to resolve the "first"/"second" baseline_group
-        # keywords below -- it is NOT used to decide which category
-        # becomes group0. See _resolve_baseline_group / "Group identity"
-        # in the class docstring.
+        # depends on row order in surv_df_binary, not on sorting.
         categories = surv_df_binary[target_col_name].unique()
         if categories.shape[0] != 2:
             raise ValueError(
@@ -167,35 +134,26 @@ class BinaryClassSurv:
                 f"{categories.shape[0]}: {sorted(categories)}"
             )
 
+        category0, category1 = categories[0], categories[1]
+        mask = surv_df_binary[target_col_name] == category0
+
         self.target_col_name = target_col_name
         self.surv_df_binary = surv_df_binary
-
-        # Single source of truth for "which group is baseline" -- resolved
-        # once, here, from whatever form `baseline_group` was passed in
-        # (keyword or explicit label), and BEFORE group0/group1 are split
-        # out. group0 is then defined to be whatever this resolves to, so
-        # group0/group1 identity is always a function of baseline_group
-        # and the category labels/counts -- never of row order in
-        # surv_df_binary. Every downstream consumer (cox_ph_dict,
-        # plotting, callers like MinimumPValue) should read
-        # `self.baseline_label` / `self.group_labels[0]` rather than
-        # re-deriving it, so there is never a second, possibly
-        # inconsistent, notion of "baseline" or "group0" floating around.
-        baseline_label, other_label = self._resolve_baseline_group(
-            baseline_group=baseline_group,
-            categories=categories,
-            surv_df_binary=surv_df_binary,
-        )
-
-        self.group_labels = {0: baseline_label, 1: other_label}
-        self.baseline_idx = 0
-        self.baseline_label = baseline_label
-
-        mask = surv_df_binary[target_col_name] == baseline_label
+        self.group_labels = {0: category0, 1: category1}
         self.surv_df0 = surv_df_binary[mask][["time", "event"]].copy()
         self.surv_df1 = surv_df_binary[~mask][["time", "event"]].copy()
 
         self._checks_group_split_validity()
+
+        # Single source of truth for "which group is baseline" -- resolved
+        # once, here, from whatever form `baseline_group` was passed in
+        # (keyword or explicit label). Every downstream consumer
+        # (cox_ph_dict, plotting, callers like MinimumPValue) should read
+        # `self.baseline_label` / `self.baseline_idx` rather than
+        # re-deriving it, so there is never a second, possibly
+        # inconsistent, notion of "baseline" floating around.
+        self.baseline_idx = self._resolve_baseline_group(baseline_group)
+        self.baseline_label = self.group_labels[self.baseline_idx]
 
         # self._create_log_rank_dict()
         # self._create_cox_ph_dict()
@@ -253,49 +211,38 @@ class BinaryClassSurv:
         #         f"group0_events={group0_events}, group1_events={group1_events}"
         #     )
 
-    def _resolve_baseline_group(self, baseline_group, categories, surv_df_binary) -> tuple:
-        """Resolve the `baseline_group` argument to (baseline_label, other_label).
+    def _resolve_baseline_group(self, baseline_group) -> int:
+        """Resolve the `baseline_group` argument to 0 or 1 (an index into
+        `self.group_labels`).
 
         Accepts the keywords "largest"/"smallest"/"first"/"second", or an
         actual category value present in the grouping column. Raises
         ValueError if it matches none of those.
-
-        Resolved against `categories` (first-seen `.unique()` order, used
-        only to break ties / define "first"/"second") and group counts in
-        `surv_df_binary` -- NOT against any group0/group1 split, since
-        that split doesn't exist yet when this runs. This ordering is
-        what guarantees group0/group1 identity never depends on row
-        order in the input (see "Group identity" in the class
-        docstring).
         """
-        cat_first, cat_second = categories[0], categories[1]
-        n_first = int((surv_df_binary[self.target_col_name] == cat_first).sum())
-        n_second = len(surv_df_binary) - n_first
+        n0, n1 = self.surv_df0.shape[0], self.surv_df1.shape[0]
 
         if baseline_group == "largest":
-            baseline_label = cat_first if n_first >= n_second else cat_second
-        elif baseline_group == "smallest":
-            baseline_label = cat_first if n_first < n_second else cat_second
-        elif baseline_group == "first":
-            baseline_label = cat_first
-        elif baseline_group == "second":
-            baseline_label = cat_second
-        elif baseline_group == cat_first:
-            baseline_label = cat_first
-        elif baseline_group == cat_second:
-            baseline_label = cat_second
-        else:
-            error_msg = (
-                f"baseline_group={baseline_group!r} is not a recognized keyword "
-                + f"\n({self._BASELINE_KEYWORDS}) and does not match either category"
-                + f"\nfound in '{self.target_col_name}': "
-                + f"\n{[cat_first, cat_second]}"
-            )
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+            return 0 if n0 >= n1 else 1
+        if baseline_group == "smallest":
+            return 0 if n0 < n1 else 1
+        if baseline_group == "first":
+            return 0
+        if baseline_group == "second":
+            return 1
 
-        other_label = cat_second if baseline_label == cat_first else cat_first
-        return baseline_label, other_label
+        for idx, label in self.group_labels.items():
+            if label == baseline_group:
+                return idx
+
+        error_msg = (
+            f"baseline_group={baseline_group!r} is not a recognized keyword "
+            + f"\n({self._BASELINE_KEYWORDS}) and does not match either category"
+            + f"\nfound in '{self.target_col_name}': "
+            + f"\n{[self.group_labels[0], self.group_labels[1]]}"
+        )
+
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     def get_tests_dict(self):
         tests_dict = getattr(self, "tests_dict", None)
@@ -416,18 +363,17 @@ class BinaryClassSurv:
             # actual resolved category, never the raw "largest"/"smallest"
             # keyword the caller may have passed in.
             "baseline_group": baseline_label,
-            "hr": {'raw':{'hr':hr, 'ci_lower':hr_ci[0], 'ci_upper':hr_ci[1]}},
-            #"hr": hr,
-            #"hr_ci": hr_ci,
+            "hr": hr,
+            "hr_ci": hr_ci,
             "p_value": row["p"],
         }
-        cox_ph_dict['hr']["label"] = (
-            f"Hazard ratio, {hr:.2f} "
-            f"(95% CI, {hr_ci[0]:.2f} - {hr_ci[1]:.2f})"
+        cox_ph_dict["label"] = (
+            f"Hazard ratio, {cox_ph_dict['hr']:.2f} "
+            f"(95% CI, {cox_ph_dict['hr_ci'][0]:.2f} - {cox_ph_dict['hr_ci'][1]:.2f})"
         )
         cox_ph_dict["p_value_label"] = get_p_value_label(cox_ph_dict["p_value"])
         cox_ph_dict["interpretation"] = interpret_hazard_ratio(
-            hazard_ratio=cox_ph_dict["hr"]['raw']['hr'],
+            hazard_ratio=cox_ph_dict["hr"],
             baseline_group_name=baseline_label,
             other_group_name=other_label,
         )

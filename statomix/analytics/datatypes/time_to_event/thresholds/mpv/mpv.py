@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
+import matplotlib.pyplot as plt
 
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
@@ -169,21 +170,29 @@ class MinimumPValue:
         )
 
         tests_dict = bcs.get_tests_dict()
-        tests_dict['cox_ph']['hr_ci_low'] = tests_dict['cox_ph']['hr_ci'][0] 
-        tests_dict['cox_ph']['hr_ci_up'] = tests_dict['cox_ph']['hr_ci'][1]
+        #tests_dict['cox_ph']['hr_ci_low'] = tests_dict['cox_ph']['hr_ci'][0] 
+        #tests_dict['cox_ph']['hr_ci_up'] = tests_dict['cox_ph']['hr_ci'][1]
 
         mpv_dict["split_ratio"] = tests_dict["split_ratio"]
         mpv_dict["cox_ph"] = tests_dict["cox_ph"]
         mpv_dict["log_rank"] =  tests_dict["log_rank"]
         
         return {"mpv_dict":mpv_dict, "binary_class_surv_object": bcs}
+    
+    def _require_mpv_df(self) -> None:
+        if self.mpv_df is None:
+            raise RuntimeError(
+                "get_mpv_df() must be called before this method (no mpv_df "
+                "available yet)."
+            )
 
-    def get_mpv_df(self, replace=False):
+    def create_mpv_df(self, replace=False):
         
         if self.paths['mpv_df'].exists() and not replace:
             logger.info(f"mpv_df already exists at {self.paths['mpv_df']}, set replace=True to create a new one")
             self.mpv_df = pd.read_parquet(self.paths['mpv_df'])
-            return mpv_df
+            self.threshold_dicts = self._build_threshold_dicts()
+            return self.mpv_df
             
         thresholds = self._get_thresholds()
         iterator = tqdm(thresholds) if self.show_progress else thresholds
@@ -203,4 +212,516 @@ class MinimumPValue:
         mpv_df.to_parquet(self.paths['mpv_df'])
         
         self.mpv_df = mpv_df
+        self.threshold_dicts = self._build_threshold_dicts()
         return self.mpv_df
+    
+    """
+    Plot methods.    
+    """
+
+    def _build_threshold_dicts(self) -> list[dict]:
+        """
+        Compute the three reference markers (median / min p-value / closest
+        significant threshold to median) from self.mpv_df. Called once by
+        get_mpv_df() right after self.mpv_df is (re)assigned, and cached as
+        self.threshold_dicts -- not recomputed elsewhere, so it always
+        reflects whichever mpv_df was most recently loaded or generated.
+        """
+        mpv_df = self.mpv_df
+        target_median = self.target_col_stats["median"]
+        p_value_col = "cox_ph.p_value"
+    
+        median_matches = mpv_df.index[mpv_df["threshold"] == target_median]
+        median_idx = median_matches[0] if len(median_matches) > 0 else (
+            mpv_df["threshold"] - target_median
+        ).abs().idxmin()
+    
+        min_p_val_idx = mpv_df[p_value_col].idxmin()
+    
+        sig = mpv_df[mpv_df[p_value_col] < self.alpha]
+        closest_idx = None if sig.empty else (sig["threshold"] - target_median).abs().idxmin()
+    
+        return [
+            {"label": "Median", "idx": median_idx, "color": "blue", "ls": "--"},
+            {"label": "Min P-Val", "idx": min_p_val_idx, "color": "gray", "ls": "--"},
+            {"label": "Closest to Median", "idx": closest_idx, "color": "green", "ls": "--"},
+        ]
+    
+    def _add_threshold_markers(self, ax) -> None:
+        """
+        Draw the three cached reference markers (self.threshold_dicts) as
+        vertical lines on `ax`, skipping any whose idx is None. Shared by
+        every plot method below.
+        """
+        for threshold_dict in self.threshold_dicts:
+            if threshold_dict["idx"] is None:
+                continue
+            ax.axvline(
+                threshold_dict["idx"],
+                color=threshold_dict["color"],
+                ls=threshold_dict["ls"],
+                lw=1,
+                label=threshold_dict["label"],
+            )
+    
+    
+    def plot_hr_with_ci(self, ax=None, title=None, grid=True, figsize=(11, 5),
+                         log_scale=True, save_path=None, dpi=300):
+        """Cox hazard ratio (log scale) with shaded 95% CI, across thresholds."""
+        self._require_mpv_df()
+    
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=figsize)
+    
+        x = self.mpv_df.index
+        ax.plot(x, self.mpv_df["cox_ph.hr.raw.hr"], color="tab:purple", lw=1.4, marker=".", label="Cox HR")
+        ax.fill_between(x, self.mpv_df["cox_ph.hr.raw.ci_lower"], self.mpv_df["cox_ph.hr.raw.ci_upper"],
+                         color="tab:purple", alpha=0.15, label="95% CI")
+        ax.axhline(1.0, color="black", lw=0.8, alpha=0.5, label="HR = 1 (no effect)")
+    
+        self._add_threshold_markers(ax)
+    
+        ax.set_xlabel("Threshold")
+        if log_scale:
+            ax.set_yscale("log")
+            ax.set_ylabel("Hazard Ratio (log scale)")
+        else:
+            ax.set_ylabel("Hazard Ratio")
+    
+        if title is None:
+            ax.set_title("Cox proportional-hazards ratio across scanned thresholds")
+        else:
+            ax.set_title(title)
+    
+        ax.legend(loc="upper right", fontsize=8)
+    
+        if grid:
+            ax.grid(True, which="both", alpha=0.2)
+    
+        if save_path is not None:
+            ax.figure.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        if own_fig:
+            fig.tight_layout()
+            return fig
+        return ax
+    
+    
+    def plot_p_values(self, p_value="both", ax=None, title=None, grid=True, figsize=(11, 5),
+                       log_scale=True, save_path=None, dpi=300):
+        """
+        Cox PH and/or log-rank p-values across the same threshold axis.
+    
+        p_value: "cox_ph", "log_rank", or "both" (default).
+        """
+        self._require_mpv_df()
+    
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=figsize)
+    
+        x = self.mpv_df.index
+        cox_p = (np.clip(self.mpv_df["cox_ph.p_value"].to_numpy(), 1e-300, None)
+                  if log_scale else self.mpv_df["cox_ph.p_value"].to_numpy())
+        lr_p = (np.clip(self.mpv_df["log_rank.p_value"].to_numpy(), 1e-300, None)
+                 if log_scale else self.mpv_df["log_rank.p_value"].to_numpy())
+    
+        if p_value == "cox_ph":
+            ax.plot(x, cox_p, color="tab:blue", lw=1.2, marker=".", label="Cox PH p-value")
+            default_title = "Cox PH p-value across scanned thresholds"
+        elif p_value == "log_rank":
+            ax.plot(x, lr_p, color="tab:orange", lw=1.2, marker=".", label="Log-rank p-value")
+            default_title = "Log-rank p-value across scanned thresholds"
+        elif p_value == "both":
+            ax.plot(x, cox_p, color="tab:blue", lw=1.2, marker=".", label="Cox PH p-value")
+            ax.plot(x, lr_p, color="tab:orange", lw=1.2, marker=".", label="Log-rank p-value")
+            default_title = "Cox PH vs. log-rank p-value across scanned thresholds"
+        else:
+            raise ValueError('p_value must be one of "cox_ph", "log_rank", or "both"')
+    
+        ax.axhline(self.alpha, color="tab:red", ls="--", lw=1, label=f"alpha = {self.alpha}")
+    
+        self._add_threshold_markers(ax)
+    
+        ax.set_xlabel("Threshold")
+        if log_scale:
+            ax.set_yscale("log")
+            ax.set_ylabel("p-value (log scale)")
+        else:
+            ax.set_ylabel("p-value")
+    
+        if title is None:
+            ax.set_title(default_title)
+        else:
+            ax.set_title(title)
+    
+        ax.legend(loc="upper right", fontsize=8)
+    
+        if grid:
+            ax.grid(True, which="both", alpha=0.2)
+    
+        if save_path is not None:
+            ax.figure.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        if own_fig:
+            fig.tight_layout()
+            return fig
+        return ax
+    
+    
+    def plot_ci_width(self, ax=None, title=None, grid=True, figsize=(11, 4.5),
+                       log_scale=True, save_path=None, dpi=300):
+        """
+        Width of the Cox HR confidence interval across thresholds (upper /
+        lower, log scale, since HR CIs are multiplicative). Narrower = more
+        stable estimate at that threshold.
+        """
+        self._require_mpv_df()
+    
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=figsize)
+    
+        x = self.mpv_df.index
+        ci_ratio = self.mpv_df["cox_ph.hr.raw.ci_upper"] / self.mpv_df["cox_ph.hr.raw.ci_lower"]
+    
+        ax.plot(x, ci_ratio, color="tab:brown", lw=1.2, marker=".")
+    
+        self._add_threshold_markers(ax)
+    
+        ax.set_xlabel("Threshold")
+        if log_scale:
+            ax.set_yscale("log")
+            ax.set_ylabel("CI Width\n(Upper / Lower, log scale)")
+        else:
+            ax.set_ylabel("CI Width\n(Upper / Lower)")
+    
+        if title is None:
+            ax.set_title("Cox HR confidence-interval width across thresholds\n(narrower = more stable estimate)")
+        else:
+            ax.set_title(title)
+    
+        ax.legend(loc="upper right", fontsize=8)
+    
+        if grid:
+            ax.grid(True, which="both", alpha=0.2)
+    
+        if save_path is not None:
+            ax.figure.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        if own_fig:
+            fig.tight_layout()
+            return fig
+        return ax
+    
+    
+    def plot_median_survival(self, ax=None, cap_not_reached=True, title=None, grid=True,
+                              figsize=(11, 5), save_path=None, dpi=300):
+        """
+        Median survival time per group across thresholds, with shaded CI
+        bands. "Not reached" is np.inf in the raw columns; by default
+        (cap_not_reached=True) it's capped at 1.15x the largest finite value
+        so it plots near the top of the axis rather than vanishing or
+        breaking y-limits. Set cap_not_reached=False to leave it as a NaN gap
+        instead.
+        """
+        self._require_mpv_df()
+    
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=figsize)
+    
+        x = self.mpv_df.index
+        g0_est = self.mpv_df["log_rank.group0_median_survival.raw.median"]
+        g0_lo = self.mpv_df["log_rank.group0_median_survival.raw.ci_lower"]
+        g0_hi = self.mpv_df["log_rank.group0_median_survival.raw.ci_upper"]
+        g1_est = self.mpv_df["log_rank.group1_median_survival.raw.median"]
+        g1_lo = self.mpv_df["log_rank.group1_median_survival.raw.ci_lower"]
+        g1_hi = self.mpv_df["log_rank.group1_median_survival.raw.ci_upper"]
+    
+        if cap_not_reached:
+            finite_vals = pd.concat([s.replace([np.inf, -np.inf], np.nan).dropna()
+                                      for s in (g0_est, g0_hi, g1_est, g1_hi)])
+            cap = float(finite_vals.max()) * 1.15 if len(finite_vals) else 1.0
+            g0_est_plot, g0_hi_plot = g0_est.replace(np.inf, cap), g0_hi.replace(np.inf, cap)
+            g1_est_plot, g1_hi_plot = g1_est.replace(np.inf, cap), g1_hi.replace(np.inf, cap)
+            ax.axhline(cap, color="gray", ls="--", lw=0.8, alpha=0.5, label='Capped = "Not Reached"')
+        else:
+            g0_est_plot, g0_hi_plot = g0_est.replace(np.inf, np.nan), g0_hi.replace(np.inf, np.nan)
+            g1_est_plot, g1_hi_plot = g1_est.replace(np.inf, np.nan), g1_hi.replace(np.inf, np.nan)
+    
+        ax.plot(x, g0_est_plot, color="tab:blue", lw=1.4, marker=".", label="Group 0 median survival")
+        ax.fill_between(x, g0_lo, g0_hi_plot, color="tab:blue", alpha=0.12)
+    
+        ax.plot(x, g1_est_plot, color="tab:orange", lw=1.4, marker=".", label="Group 1 median survival")
+        ax.fill_between(x, g1_lo, g1_hi_plot, color="tab:orange", alpha=0.12)
+    
+        self._add_threshold_markers(ax)
+    
+        ax.set_xlabel("Threshold")
+        ax.set_ylabel("Median Survival Time")
+    
+        if title is None:
+            subtitle = '("not reached" capped near top)' if cap_not_reached else '(gaps = "not reached")'
+            ax.set_title(f"Median survival per group across scanned thresholds\n{subtitle}")
+        else:
+            ax.set_title(title)
+    
+        ax.legend(loc="upper right", fontsize=8)
+    
+        if grid:
+            ax.grid(True, alpha=0.2)
+    
+        if save_path is not None:
+            ax.figure.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        if own_fig:
+            fig.tight_layout()
+            return fig
+        return ax
+    
+    
+    def plot_median_follow_up(self, ax=None, title=None, grid=True, figsize=(11, 4.5),
+                               save_path=None, dpi=300):
+        """Median follow-up time per group across thresholds (sanity check)."""
+        self._require_mpv_df()
+    
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=figsize)
+    
+        x = self.mpv_df.index
+    
+        ax.plot(x, self.mpv_df["log_rank.group0_median_follow_up.raw.median"], color="tab:blue",
+                lw=1.2, marker=".", label="Group 0 median follow-up")
+        ax.fill_between(x, self.mpv_df["log_rank.group0_median_follow_up.raw.ci_lower"],
+                         self.mpv_df["log_rank.group0_median_follow_up.raw.ci_upper"],
+                         color="tab:blue", alpha=0.10)
+    
+        ax.plot(x, self.mpv_df["log_rank.group1_median_follow_up.raw.median"], color="tab:orange",
+                lw=1.2, marker=".", label="Group 1 median follow-up")
+        ax.fill_between(x, self.mpv_df["log_rank.group1_median_follow_up.raw.ci_lower"],
+                         self.mpv_df["log_rank.group1_median_follow_up.raw.ci_upper"],
+                         color="tab:orange", alpha=0.10)
+    
+        self._add_threshold_markers(ax)
+    
+        ax.set_xlabel("Threshold")
+        ax.set_ylabel("Median Follow-up Time")
+    
+        if title is None:
+            ax.set_title("Median follow-up per group across scanned thresholds")
+        else:
+            ax.set_title(title)
+    
+        ax.legend(loc="upper right", fontsize=8)
+    
+        if grid:
+            ax.grid(True, alpha=0.2)
+    
+        if save_path is not None:
+            ax.figure.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        if own_fig:
+            fig.tight_layout()
+            return fig
+        return ax
+    
+    
+    def plot_group_sizes(self, ax=None, title=None, grid=True, figsize=(11, 4.5),
+                          save_path=None, dpi=300):
+        """Absolute group sizes (group0_n, group1_n) across thresholds."""
+        self._require_mpv_df()
+    
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=figsize)
+    
+        x = self.mpv_df.index
+        ax.plot(x, self.mpv_df["log_rank.group0_n"], color="tab:blue", lw=1.4, marker=".", label="Group 0 n")
+        ax.plot(x, self.mpv_df["log_rank.group1_n"], color="tab:orange", lw=1.4, marker=".", label="Group 1 n")
+    
+        total = self.mpv_df["log_rank.group0_n"] + self.mpv_df["log_rank.group1_n"]
+        ax.plot(x, total, color="gray", lw=1.0, ls="--", alpha=0.6, label="Total n (sanity check)")
+    
+        self._add_threshold_markers(ax)
+    
+        ax.set_xlabel("Threshold")
+        ax.set_ylabel("Group size (n)")
+    
+        if title is None:
+            ax.set_title("Absolute group sizes across scanned thresholds")
+        else:
+            ax.set_title(title)
+    
+        ax.legend(loc="upper right", fontsize=8)
+    
+        if grid:
+            ax.grid(True, alpha=0.2)
+    
+        if save_path is not None:
+            ax.figure.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        if own_fig:
+            fig.tight_layout()
+            return fig
+        return ax
+    
+    
+    def plot_split_ratio(self, imbalance_factor=10.0, ax=None, title=None, grid=True,
+                          figsize=(11, 4.5), log_scale=True, save_path=None, dpi=300):
+        """
+        Group0_n / group1_n split ratio across thresholds (log scale), with
+        a shaded "imbalanced" zone beyond `imbalance_factor`:1 in either
+        direction.
+        """
+        self._require_mpv_df()
+    
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=figsize)
+    
+        x = self.mpv_df.index
+        ratio = self.mpv_df["split_ratio"]
+    
+        danger_lo, danger_hi = 1.0 / imbalance_factor, imbalance_factor
+        ax.axhspan(danger_hi, max(ratio.max() * 1.1, danger_hi * 1.1), color="tab:red", alpha=0.08)
+        ax.axhspan(min(ratio.min() * 0.9, danger_lo * 0.9), danger_lo, color="tab:red", alpha=0.08,
+                   label=f"Imbalanced (>{imbalance_factor:g}:1)")
+    
+        ax.plot(x, ratio, color="tab:green", lw=1.2, marker=".")
+        ax.axhline(1.0, color="black", lw=0.8, alpha=0.4, label="Balanced (1:1)")
+    
+        self._add_threshold_markers(ax)
+    
+        ax.set_xlabel("Threshold")
+        if log_scale:
+            ax.set_yscale("log")
+            ax.set_ylabel("Split ratio\n(group0_n / group1_n, log)")
+        else:
+            ax.set_ylabel("Split ratio\n(group0_n / group1_n)")
+    
+        if title is None:
+            ax.set_title("Group split ratio across scanned thresholds")
+        else:
+            ax.set_title(title)
+    
+        ax.legend(loc="upper right", fontsize=8)
+    
+        if grid:
+            ax.grid(True, which="both", alpha=0.2)
+    
+        if save_path is not None:
+            ax.figure.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        if own_fig:
+            fig.tight_layout()
+            return fig
+        return ax
+    
+    
+    def plot_hr_vs_pvalue_scatter(self, color_by="threshold", ax=None, title=None, grid=True,
+                                   save_path=None, dpi=300):
+        """
+        Scatter of Cox HR (x, log scale) vs. Cox p-value (y, log scale),
+        colored by `color_by` (default: "threshold"; alternative:
+        "split_ratio"). The three reference thresholds are drawn as open
+        circles at their (HR, p-value) position rather than axvlines, since
+        the x-axis here is HR, not threshold/index.
+        """
+        self._require_mpv_df()
+    
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=(7, 6))
+        else:
+            fig = ax.figure
+    
+        color_vals = self.mpv_df[color_by]
+        sc = ax.scatter(
+            self.mpv_df["cox_ph.hr.raw.hr"], np.clip(self.mpv_df["cox_ph.p_value"], 1e-300, None),
+            c=color_vals, cmap="viridis", s=28, edgecolor="none", zorder=2,
+        )
+        cbar = fig.colorbar(sc, ax=ax, pad=0.02)
+        cbar.set_label(color_by)
+    
+        for threshold_dict in self.threshold_dicts:
+            if threshold_dict["idx"] is None:
+                continue
+            row = self.mpv_df.loc[threshold_dict["idx"]]
+            ax.scatter(
+                row["cox_ph.hr.raw.hr"], max(row["cox_ph.p_value"], 1e-300),
+                s=140, facecolor="none", edgecolor=threshold_dict["color"],
+                linewidth=1.8, zorder=3, label=threshold_dict["label"],
+            )
+    
+        ax.axhline(self.alpha, color="tab:red", ls="--", lw=1, label=f"alpha = {self.alpha}")
+        ax.axvline(1.0, color="black", lw=0.8, alpha=0.4, label="HR = 1")
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("Hazard Ratio (log scale)")
+        ax.set_ylabel("Cox p-value (log scale)")
+    
+        if title is None:
+            ax.set_title(f"HR vs. p-value across thresholds, colored by {color_by}")
+        else:
+            ax.set_title(title)
+    
+        ax.legend(loc="best", fontsize=8)
+    
+        if grid:
+            ax.grid(True, which="both", alpha=0.2)
+    
+        if save_path is not None:
+            ax.figure.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        if own_fig:
+            fig.tight_layout()
+            return fig
+        return ax
+    
+    
+    def plot_dashboard(self, imbalance_factor=10.0, title=None, grid=True, save_path=None, dpi=300):
+        """
+        Multi-panel dashboard sharing one threshold x-axis:
+          1. Cox + log-rank p-values
+          2. Cox HR with CI band
+          3. Group sizes (n)
+          4. Split ratio with imbalance danger zones
+          5. Median survival per group with CI bands ("not reached" capped)
+        """
+        self._require_mpv_df()
+    
+        fig, axes = plt.subplots(
+            5, 1, figsize=(12, 16), sharex=True,
+            gridspec_kw={"height_ratios": [2, 2, 1.3, 1.3, 2]},
+        )
+        ax_p, ax_hr, ax_n, ax_ratio, ax_surv = axes
+    
+        self.plot_p_values(p_value="both", ax=ax_p, grid=grid)
+        ax_p.set_xlabel("")
+    
+        self.plot_hr_with_ci(ax=ax_hr, grid=grid)
+        ax_hr.set_xlabel("")
+        ax_hr.set_title("Cox Hazard Ratio (log scale) with 95% CI")
+    
+        self.plot_group_sizes(ax=ax_n, grid=grid)
+        ax_n.set_title("")
+        ax_n.set_xlabel("")
+    
+        self.plot_split_ratio(imbalance_factor=imbalance_factor, ax=ax_ratio, grid=grid)
+        ax_ratio.set_title("")
+        ax_ratio.set_xlabel("")
+    
+        self.plot_median_survival(ax=ax_surv, cap_not_reached=True, grid=grid)
+        ax_surv.set_title("")
+    
+        axes[-1].set_xlabel("Threshold")
+        fig.suptitle("Threshold scan dashboard" if title is None else title, fontsize=13, y=1.01)
+        fig.tight_layout()
+    
+        if save_path is not None:
+            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    
+        return fig
