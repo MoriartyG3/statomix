@@ -200,6 +200,10 @@ class BinaryClassSurv:
         # self._create_log_rank_dict()
         # self._create_cox_ph_dict()
 
+    @staticmethod
+    def get_config_df():
+        return pd.DataFrame(columns=["target_col_name", "survival_labels"])
+
     def _checks_group_split_validity(self):
         group0_n = len(self.surv_df0)
         group1_n = len(self.surv_df1)
@@ -331,14 +335,14 @@ class BinaryClassSurv:
             "group0_median_survival": self.km0.descriptives["median_survival"],
             "group1_median_survival": self.km1.descriptives["median_survival"],
             
-            "group0_median_survival_raw": self.km0.descriptives['median_survival']['raw'],
-            "group1_median_survival_raw": self.km1.descriptives['median_survival']['raw'],
+            #"group0_median_survival_raw": self.km0.descriptives['median_survival']['raw'],
+            #"group1_median_survival_raw": self.km1.descriptives['median_survival']['raw'],
             
             "group0_median_follow_up": self.km0.descriptives["median_follow_up"],
             "group1_median_follow_up": self.km1.descriptives["median_follow_up"],
         
-            "group0_median_follow_up_raw": self.km0.descriptives['median_follow_up']['raw'],
-            "group1_median_follow_up_raw": self.km1.descriptives['median_follow_up']['raw'],
+            #"group0_median_follow_up_raw": self.km0.descriptives['median_follow_up']['raw'],
+            #"group1_median_follow_up_raw": self.km1.descriptives['median_follow_up']['raw'],
             
         }
 
@@ -441,7 +445,7 @@ class BinaryClassSurv:
         print_hazard_stats=True,
         plot=True,
         title=None,
-        savepath=None,
+        save_path=None,
         plot_grid=True,
         x_axis_range=None,
         add_risk_table=True,
@@ -502,7 +506,7 @@ class BinaryClassSurv:
             plt.text(
                 x=0.05,
                 y=0.15,
-                s=cox_ph_dict["label"],
+                s=cox_ph_dict['hr']['label'],
                 transform=ax.transAxes,
                 fontsize=9,
                 verticalalignment="top",
@@ -519,8 +523,8 @@ class BinaryClassSurv:
         if plot_grid:
             plt.grid(True)
 
-        if savepath is not None:
-            plt.savefig(savepath)
+        if save_path is not None:
+            fig.savefig(save_path, bbox_inches="tight")
 
         if plot:
             plt.show()

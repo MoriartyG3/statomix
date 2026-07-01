@@ -1,3 +1,4 @@
+import shutil
 import pandas as pd
 from pathlib import Path
 
@@ -97,8 +98,8 @@ class Analyzer(BasePipeline):
             # surv_df['event'] = surv_df['event'].astype(bool)
             scs = SingleClassSurv(surv_label=surv_label, surv_df=surv_df)
             
-            savepath =  plots_dir/f"{surv_label}.png"
-            scs.plot_km_curve(title=surv_label, savepath=savepath, plot_grid=False, plot=False)
+            save_path =  plots_dir/f"{surv_label}.png"
+            scs.plot_km_curve(title=surv_label, save_path=save_path, plot_grid=False, plot=False)
         
             time_points = [12,24,36,48,60]
             for time_point in time_points:
@@ -115,3 +116,44 @@ class Analyzer(BasePipeline):
         descriptives_df.to_excel(surv_dir/"descriptives.xlsx")
         BaseExcel.format_cell_length(path=surv_dir/"descriptives.xlsx")
         
+    def create_analysis_config_file(self, version, config_version, analysis_config_version, analysis_name=None, create_new=False):
+    
+        group_bundle = self._get_group_bundle(version=version, config_version=config_version)
+        
+        group_analyzer = self._get_group_analyzer(version=version, config_version=config_version)
+        
+        config_meta = group_bundle['config']['meta']
+        if 'analysis_config' not in config_meta:
+            config_meta['analysis_config'] = {}
+            config_meta['analysis_config']['latest_version'] = 1
+            config_meta['analysis_config']['version_history'] = [1]
+            config_meta['analysis_config']["name"] = analysis_name
+            group_bundle['config']['group'].attrs['meta'] = config_meta
+        elif create_new:
+            latest_version = config_meta['analysis_config']['latest_version']
+            latest_version+=1
+            config_meta['analysis_config']['version_history'].append(latest_version)
+            config_meta['analysis_config']['latest_version'] = latest_version
+            group_bundle['config']['group'].attrs['meta'] = config_meta
+        
+        version = config_meta['analysis_config']['latest_version']
+        analysis_config_file_path =  group_bundle['config']['path']/f"analysis_config_version{version}.xlsx"
+        datatype_col_map_path = group_bundle['config']['path']/f"analysis_config_version{version}_datatype_col_map.yaml"
+        
+        if analysis_config_file_path.exists():
+            logger.info(f"Analysis configuration version:{version} already exists, Set create_new=True to create a new one.")
+            return
+        
+        writer = pd.ExcelWriter(path=analysis_config_file_path, engine='openpyxl')
+        datatype_map_df = group_analyzer._get_datatype_map_df()
+        datatype_map_df.to_excel(excel_writer=writer, sheet_name="Datatype Map", index=False)
+        writer.close()
+        
+        BaseExcel.format_cell_length(path=analysis_config_file_path)
+        
+        # workbook =  load_workbook(filename=path)
+        # worksheet = workbook['Datatype Map']
+        # datatype_col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
+        # BaseYAML.save(data=datatype_col_map, path=datatype_col_map_path, replace=create_new)
+        
+        shutil.copy(src=analysis_config_file_path, dst=analysis_config_file_path.name)

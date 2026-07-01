@@ -18,8 +18,8 @@ class MinimumPValue:
         surv_label:str,
         surv_df_mpv:pd.DataFrame,
         root_group,
-        trunc_pct = 2,
-        iqr_multiplier = None,
+        trunc_pct = None,
+        iqr_multiplier = 1.5,
         use_synthetic_cutoffs:bool = False,
         search_resolution: float = 0.5,
         show_progress: bool =True,
@@ -76,10 +76,23 @@ class MinimumPValue:
         clean_col_name = clean_path_name(path=self.target_col_stats['name'])
         self.groups['col'] = self.groups['root'].root_group.require_group(f"{str(clean_col_name)}_trunc_pct_{self.trunc_pct}_iqr_multiplier_{self.iqr_multiplier}")
 
+        col_group = self.groups['col']
+        col_meta = col_group.attrs.get("meta", {})
+        col_meta["mpv_data_exists"] = False
+        col_group.attrs['meta'] = col_meta
+
     def _create_paths(self):
+        base_path = BaseZARR.get_abs_path(group=self.groups['col'])
+        
         self.paths = {}
-        self.paths['base'] =  BaseZARR.get_abs_path(group=self.groups['col'])
-        self.paths["mpv_df"] =  self.paths['base']/"mpv_df.parquet"
+        self.paths['base'] =  base_path
+
+        self.paths["mpv_df"] =  base_path/"mpv_df.parquet"
+        self.paths['marked_thresholds_df'] = base_path/"marked_thresholds_df.parquet"
+
+        self.paths['plot_dashboard'] =  base_path/"plot_dashboard.png"
+        self.paths['plot_median_follow_up'] =  base_path/'plot_median_follow_up.png'
+        self.paths['plot_hr_vs_p_value_scatter'] = base_path/"plot_hr_vs_p_value_scatter.png"
 
     def _get_thresholds(self) -> np.ndarray:
         target_col = self.surv_df_mpv[self.target_col_stats["name"]]
@@ -182,16 +195,38 @@ class MinimumPValue:
     def _require_mpv_df(self) -> None:
         if self.mpv_df is None:
             raise RuntimeError(
-                "get_mpv_df() must be called before this method (no mpv_df "
+                "create_mpv_data() must be called before this method (no mpv_df "
                 "available yet)."
             )
 
-    def create_mpv_df(self, replace=False):
+    def create_mpv_data(self, replace=False):
+
+        col_group = self.groups['col']
+        col_meta = col_group.attrs.get("meta", {})
+
+        if col_meta["mpv_data_exists"] and not replace:
+            logger.info(f"mpv data already exists for {self.surv_label}:{self.target_col_stats['name']}.\nSet replace=True to create a new one")
+            return
+            
+        col_meta["mpv_data_exists"] = False
+        
+        self._create_mpv_df(replace=replace)
+        
+        self._save_marked_thresholds_data(replace=replace)
+        
+        _ = self.plot_dashboard(save_path=self.paths['plot_dashboard'])
+        _ = self.plot_median_follow_up(save_path=self.paths['plot_median_follow_up'])
+        _ = self.plot_hr_vs_pvalue_scatter(save_path=self.paths['plot_hr_vs_p_value_scatter'])
+
+        col_meta["mpv_data_exists"] = True
+        col_group.attrs['meta'] = col_meta
+
+    def _create_mpv_df(self, replace):
         
         if self.paths['mpv_df'].exists() and not replace:
             logger.info(f"mpv_df already exists at {self.paths['mpv_df']}, set replace=True to create a new one")
             self.mpv_df = pd.read_parquet(self.paths['mpv_df'])
-            self.threshold_dicts = self._build_threshold_dicts()
+            self.marked_threshold_dicts = self._build_marked_threshold_dicts()
             return self.mpv_df
             
         thresholds = self._get_thresholds()
@@ -210,21 +245,51 @@ class MinimumPValue:
         # Sort thresholds sequentially and reset index to prevent scrambled index matching
         mpv_df = mpv_df.sort_values(by="threshold").reset_index(drop=True)
         mpv_df.to_parquet(self.paths['mpv_df'])
+        mpv_df.to_csv(self.paths['mpv_df'].with_suffix(suffix=".csv"), index=False)
         
         self.mpv_df = mpv_df
-        self.threshold_dicts = self._build_threshold_dicts()
+        self.marked_threshold_dicts = self._build_marked_threshold_dicts()
+        
         return self.mpv_df
+
+    def _save_marked_thresholds_data(self, replace):
+        
+        self._require_mpv_df()
+        
+        if self.paths['marked_thresholds_df'].exists() and not replace:
+            return
+            
+        tests_dicts = []
+        for threshold_dict in self.marked_threshold_dicts:
+            idx = threshold_dict['idx']
+            threshold = self.mpv_df.iloc[idx]['threshold']
+            mpv_data = self._get_mpv_data_at_threshold(threshold=threshold)
+            bcs = mpv_data['binary_class_surv_object']
+            
+            save_path = self.paths['base']/f"km_curve_{threshold_dict['label']}:{threshold}.png"
+            bcs.plot_km_curves(plot=False, save_path=save_path)
+            
+            tests_dict = bcs.get_tests_dict()
+            tests_dict = pd.json_normalize(tests_dict).to_dict(orient='records')[0]
+            tests_dict['threshold'] = threshold
+        
+            tests_dicts.append(tests_dict)
+        
+        tests_df = pd.DataFrame(data=tests_dicts).set_index(['threshold'])
+        
+        tests_df.to_parquet(path=self.paths['marked_thresholds_df'])
+        tests_df.to_csv(self.paths['marked_thresholds_df'].with_suffix(suffix=".csv"), index=True)
     
     """
     Plot methods.    
     """
 
-    def _build_threshold_dicts(self) -> list[dict]:
+    def _build_marked_threshold_dicts(self) -> list[dict]:
         """
         Compute the three reference markers (median / min p-value / closest
         significant threshold to median) from self.mpv_df. Called once by
         get_mpv_df() right after self.mpv_df is (re)assigned, and cached as
-        self.threshold_dicts -- not recomputed elsewhere, so it always
+        self.marked_threshold_dicts -- not recomputed elsewhere, so it always
         reflects whichever mpv_df was most recently loaded or generated.
         """
         mpv_df = self.mpv_df
@@ -249,11 +314,11 @@ class MinimumPValue:
     
     def _add_threshold_markers(self, ax) -> None:
         """
-        Draw the three cached reference markers (self.threshold_dicts) as
+        Draw the three cached reference markers (self.marked_threshold_dicts) as
         vertical lines on `ax`, skipping any whose idx is None. Shared by
         every plot method below.
         """
-        for threshold_dict in self.threshold_dicts:
+        for threshold_dict in self.marked_threshold_dicts:
             if threshold_dict["idx"] is None:
                 continue
             ax.axvline(
@@ -290,7 +355,7 @@ class MinimumPValue:
             ax.set_ylabel("Hazard Ratio")
     
         if title is None:
-            ax.set_title("Cox proportional-hazards ratio across scanned thresholds")
+            ax.set_title(f"Cox proportional-hazards ratio across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}")
         else:
             ax.set_title(title)
     
@@ -305,6 +370,7 @@ class MinimumPValue:
         if own_fig:
             fig.tight_layout()
             return fig
+            
         return ax
     
     
@@ -329,14 +395,14 @@ class MinimumPValue:
     
         if p_value == "cox_ph":
             ax.plot(x, cox_p, color="tab:blue", lw=1.2, marker=".", label="Cox PH p-value")
-            default_title = "Cox PH p-value across scanned thresholds"
+            default_title = f"Cox PH p-value across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}"
         elif p_value == "log_rank":
             ax.plot(x, lr_p, color="tab:orange", lw=1.2, marker=".", label="Log-rank p-value")
-            default_title = "Log-rank p-value across scanned thresholds"
+            default_title = f"Log-rank p-value across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}"
         elif p_value == "both":
             ax.plot(x, cox_p, color="tab:blue", lw=1.2, marker=".", label="Cox PH p-value")
             ax.plot(x, lr_p, color="tab:orange", lw=1.2, marker=".", label="Log-rank p-value")
-            default_title = "Cox PH vs. log-rank p-value across scanned thresholds"
+            default_title = f"Cox PH vs. log-rank p-value across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}"
         else:
             raise ValueError('p_value must be one of "cox_ph", "log_rank", or "both"')
     
@@ -398,7 +464,7 @@ class MinimumPValue:
             ax.set_ylabel("CI Width\n(Upper / Lower)")
     
         if title is None:
-            ax.set_title("Cox HR confidence-interval width across thresholds\n(narrower = more stable estimate)")
+            ax.set_title(f"Cox HR confidence-interval width across thresholds\n(narrower = more stable estimate)\n{self.surv_label}:{self.target_col_stats['name']}")
         else:
             ax.set_title(title)
     
@@ -464,7 +530,7 @@ class MinimumPValue:
     
         if title is None:
             subtitle = '("not reached" capped near top)' if cap_not_reached else '(gaps = "not reached")'
-            ax.set_title(f"Median survival per group across scanned thresholds\n{subtitle}")
+            ax.set_title(f"Median survival per group across scanned thresholds\n{subtitle}\n{self.surv_label}:{self.target_col_stats['name']}")
         else:
             ax.set_title(title)
     
@@ -511,7 +577,7 @@ class MinimumPValue:
         ax.set_ylabel("Median Follow-up Time")
     
         if title is None:
-            ax.set_title("Median follow-up per group across scanned thresholds")
+            ax.set_title(f"Median follow-up per group across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}")
         else:
             ax.set_title(title)
     
@@ -551,7 +617,7 @@ class MinimumPValue:
         ax.set_ylabel("Group size (n)")
     
         if title is None:
-            ax.set_title("Absolute group sizes across scanned thresholds")
+            ax.set_title(f"Absolute group sizes across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}")
         else:
             ax.set_title(title)
     
@@ -603,7 +669,7 @@ class MinimumPValue:
             ax.set_ylabel("Split ratio\n(group0_n / group1_n)")
     
         if title is None:
-            ax.set_title("Group split ratio across scanned thresholds")
+            ax.set_title(f"Group split ratio across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}")
         else:
             ax.set_title(title)
     
@@ -646,7 +712,7 @@ class MinimumPValue:
         cbar = fig.colorbar(sc, ax=ax, pad=0.02)
         cbar.set_label(color_by)
     
-        for threshold_dict in self.threshold_dicts:
+        for threshold_dict in self.marked_threshold_dicts:
             if threshold_dict["idx"] is None:
                 continue
             row = self.mpv_df.loc[threshold_dict["idx"]]
@@ -664,7 +730,7 @@ class MinimumPValue:
         ax.set_ylabel("Cox p-value (log scale)")
     
         if title is None:
-            ax.set_title(f"HR vs. p-value across thresholds, colored by {color_by}")
+            ax.set_title(f"HR vs. p-value across thresholds, colored by {color_by}\n{self.surv_label}:{self.target_col_stats['name']}")
         else:
             ax.set_title(title)
     
@@ -718,7 +784,7 @@ class MinimumPValue:
         ax_surv.set_title("")
     
         axes[-1].set_xlabel("Threshold")
-        fig.suptitle("Threshold scan dashboard" if title is None else title, fontsize=13, y=1.01)
+        fig.suptitle(f"Threshold scan dashboard\n{self.surv_label}:{self.target_col_stats['name']}" if title is None else title, fontsize=13, y=1.01)
         fig.tight_layout()
     
         if save_path is not None:

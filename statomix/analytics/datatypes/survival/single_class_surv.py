@@ -461,7 +461,7 @@ class SingleClassSurv:
         ylabel: str = "Survival Probability",
         plot: bool = True,
         title: str | None = None,
-        savepath: str | None = None,
+        save_path: str | None = None,
         plot_grid: bool = True,
         x_axis_range=None,
         add_risk_table: bool = True,
@@ -542,8 +542,8 @@ class SingleClassSurv:
  
         plt.tight_layout()
  
-        if savepath is not None:
-            plt.savefig(savepath)
+        if save_path is not None:
+            plt.savefig(save_path)
  
         if plot:
             plt.show()

@@ -477,7 +477,7 @@ class MultiClassSurv:
         print_hazard_stats=True,
         plot=True,
         title=None,
-        savepath=None,
+        save_path=None,
         plot_grid=True,
         x_axis_range=None,
         add_risk_table=True,
@@ -561,8 +561,8 @@ class MultiClassSurv:
         if plot_grid:
             plt.grid(True)
 
-        if savepath is not None:
-            plt.savefig(savepath)
+        if save_path is not None:
+            plt.savefig(save_path)
 
         if plot:
             plt.show()
