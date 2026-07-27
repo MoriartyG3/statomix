@@ -3,8 +3,12 @@ import pandas as pd
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 
+from openpyxl import load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
+
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
+from fileverse.formats.excel import BaseExcel
 from fileverse.clean_path_name import clean_path_name
 
 from statomix.analytics.datatypes.survival.binary_class_surv import BinaryClassSurv
@@ -13,6 +17,7 @@ logger = Logger(name="MinimumPValue").get_logger()
 
 
 class MinimumPValue:
+    module_name = "Survival Threshold - MPV"
     def __init__(
         self, 
         surv_label:str,
@@ -69,6 +74,38 @@ class MinimumPValue:
 
         self._create_groups(root_group=root_group)
         self._create_paths()
+
+    @staticmethod
+    def get_config_df():
+        return pd.DataFrame(columns=["Numerical", "Survival Labels"])
+
+    @staticmethod
+    def add_validation_to_analysis_config_file(path, max_row=500):
+        workbook = load_workbook(filename=path)
+        datatype_col_map = BaseExcel.get_worksheet_col_map(workbook['Datatype Map'])
+    
+        worksheet = workbook[MinimumPValue.module_name]
+        module_col_map = BaseExcel.get_worksheet_col_map(worksheet)
+    
+        for key, value in module_col_map.items():
+            cell_coordinate = datatype_col_map[key]
+        
+            n_options = len(workbook['Datatype Map'][cell_coordinate])
+        
+            validation = DataValidation(
+                type="list",
+                formula1=f"'Datatype Map'!${cell_coordinate}$2:${cell_coordinate}${n_options}",
+                #allow_blank=True,
+                #showErrorMessage=True,
+                #errorStyle="stop",
+                #errorTitle="Invalid Datatype",
+                #error="You must select a valid datatype from the provided drop-down menu.",
+            )
+            
+            worksheet.add_data_validation(validation)
+            validation.add(f"{value}2:{value}{max_row}")
+        
+        workbook.save(filename=path)
         
     def _create_groups(self, root_group):
         self.groups = {}
