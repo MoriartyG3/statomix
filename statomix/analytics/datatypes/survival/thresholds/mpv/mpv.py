@@ -17,7 +17,7 @@ logger = Logger(name="MinimumPValue").get_logger()
 
 
 class MinimumPValue:
-    module_name = "Survival Threshold - MPV"
+    MODULE_NAME = "Survival -Threshold MPV"
     def __init__(
         self, 
         surv_label:str,
@@ -84,7 +84,7 @@ class MinimumPValue:
         workbook = load_workbook(filename=path)
         datatype_col_map = BaseExcel.get_worksheet_col_map(workbook['Datatype Map'])
     
-        worksheet = workbook[MinimumPValue.module_name]
+        worksheet = workbook[MinimumPValue.MODULE_NAME]
         module_col_map = BaseExcel.get_worksheet_col_map(worksheet)
     
         for key, value in module_col_map.items():

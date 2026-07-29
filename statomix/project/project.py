@@ -7,6 +7,8 @@ from fileverse.formats.zarr import BaseZARR
 
 from statomix.dataset.dataset import Dataset
 
+from .analyzer.analyzer import Analyzer
+
 ROOT = Path.cwd() / "multiomix/statomix"
 logger = Logger(name="Project").get_logger()
 
@@ -14,23 +16,49 @@ logger = Logger(name="Project").get_logger()
 class Project:
     def __init__(self, project_name: str):#, project_dir = None):
         self.project_name = project_name
+        
+        self._create_groups()
+        
+        self._discover_datasets()
+        #self._init_meta()
 
+        self.analyzer = Analyzer(root_group = self.groups["analyzer_root"])
+
+    def _create_groups(self):
+        
         path = ROOT / f"{self.project_name}"
-
         self._zarr_storage = BaseZARR(path=path)
-        self.zarr_groups = {}
-        self.zarr_groups["root"] = self._zarr_storage.root_group
-
-        # if 'datasets' not in self.zarr_groups['root'].attrs:
-        #     self.zarr_groups['root'].attrs['datasets'] = {}
-        self.zarr_groups["datasets_root"] = self.zarr_groups["root"].require_group(
+        
+        self.groups = {}
+        self.groups["root"] = self._zarr_storage.root_group
+        self.groups["datasets_root"] = self.groups["root"].require_group(
             "Datasets"
         )
+        self.groups["analyzer_root"] = self.groups["root"].require_group(
+            "Analyzer"
+        ) 
 
-        self._discover_datasets()
+    # def _init_meta(self):
+    #     root_group = self.groups['root']
+        
+    #     if 'meta' in root_group.attrs:
+    #         return
+            
+    #     root_group.attrs['meta'] = {}
+    #     root_meta = root_group.attrs['meta']
+        
+    #     if 'project_level_analysis' not in root_meta:
+    #         root_meta['project_level_analysis'] = {}
+        
+    #     if 'config' not in root_meta[ 'project_level_analysis']:
+    #         root_meta['project_level_analysis']['config'] = {}
+    #         root_meta['project_level_analysis']['config']["latest_version"] = 1
+    #         root_meta['project_level_analysis']['config']["version_history"] = [1]
+
+    #     root_group.attrs['meta'] = root_meta
 
     def add_dataset(self, df, dataset_name):
-        project_datasets_meta = self.zarr_groups["root"].attrs.get("datasets", {})
+        project_datasets_meta = self.groups["root"].attrs.get("datasets", {})
 
         if (
             dataset_name in project_datasets_meta
@@ -63,16 +91,16 @@ class Project:
 
         project_datasets_meta[dataset_name] = {}
         project_datasets_meta[dataset_name]["created_successfully"] = False
-        self.zarr_groups["root"].attrs["datasets"] = project_datasets_meta
+        self.groups["root"].attrs["datasets"] = project_datasets_meta
 
         self.datasets[dataset_name] = Dataset(
             df=df,
             dataset_name=dataset_name,
-            root_group=self.zarr_groups["datasets_root"],
+            root_group=self.groups["datasets_root"],
         )
 
         project_datasets_meta[dataset_name]["created_successfully"] = True
-        self.zarr_groups["root"].attrs["datasets"] = project_datasets_meta
+        self.groups["root"].attrs["datasets"] = project_datasets_meta
 
         logger.info(
             f"Dataset '{dataset_name}' successfully initialized and registered."
@@ -81,7 +109,7 @@ class Project:
     def _discover_datasets(self):
 
         self.datasets = {}
-        project_datasets_meta = self.zarr_groups["root"].attrs.get("datasets", {})
+        project_datasets_meta = self.groups["root"].attrs.get("datasets", {})
 
         if project_datasets_meta:
             for dataset_name, dataset_meta in project_datasets_meta.items():
@@ -89,12 +117,13 @@ class Project:
                     self.datasets[dataset_name] = Dataset(
                         df=None,
                         dataset_name=dataset_name,
-                        root_group=self.zarr_groups["datasets_root"],
+                        root_group=self.groups["datasets_root"],
                     )
                     logger.info(
                         msg=f"Discovered and loaded existing dataset: '{dataset_name}'"
                     )
-    
+    # def create_analysis_config(self):
+        
     # def create_col_report(
     #     self,
     #     dataset_name,

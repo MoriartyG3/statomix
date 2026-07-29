@@ -123,7 +123,8 @@ class BinaryClassSurv:
         column, that column doesn't have exactly two unique values, or
         `baseline_group` doesn't resolve to a known option or category.
     """
-
+    
+    MODULE_NAME = "Survival - Binary"
     _BASELINE_KEYWORDS = ("largest", "smallest", "first", "second")
 
     def __init__(
@@ -213,7 +214,7 @@ class BinaryClassSurv:
         workbook = load_workbook(filename=path)
         datatype_col_map = BaseExcel.get_worksheet_col_map(workbook['Datatype Map'])
     
-        worksheet = workbook['Multiclass Survival']
+        worksheet = workbook[BinaryClassSurv.MODULE_NAME]
         module_col_map = BaseExcel.get_worksheet_col_map(worksheet)
     
         for key, value in module_col_map.items():

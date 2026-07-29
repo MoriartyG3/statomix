@@ -123,11 +123,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 
+
 from lifelines import CoxPHFitter
 from lifelines.statistics import logrank_test, multivariate_logrank_test
 from lifelines.plotting import add_at_risk_counts
 
+from openpyxl import load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
+
 from fileverse.logger import Logger
+from fileverse.formats.excel import BaseExcel
 
 from .single_class_surv import SingleClassSurv
 from .formatting import get_p_value_label, interpret_hazard_ratio
@@ -142,7 +147,8 @@ class MultiClassSurv:
     """Compares K >= 2 survival cohorts defined by a single categorical
     column. See module docstring for full parameter/attribute reference.
     """
-
+    
+    MODULE_NAME = "Survival - Multiclass"
     _BASELINE_KEYWORDS = ("largest", "smallest", "first", "second")
 
     def __init__(
@@ -209,6 +215,38 @@ class MultiClassSurv:
             self.surv_dfs[idx] = surv_df_multi[mask][["time", "event"]].copy()
 
         self._checks_group_split_validity()
+
+    @staticmethod
+    def get_config_df():
+        return pd.DataFrame(columns=["Categorical", "Survival Labels"])
+
+    @staticmethod
+    def add_validation_to_analysis_config_file(path, max_row=500):
+        workbook = load_workbook(filename=path)
+        datatype_col_map = BaseExcel.get_worksheet_col_map(workbook['Datatype Map'])
+    
+        worksheet = workbook[MultiClassSurv.MODULE_NAME]
+        module_col_map = BaseExcel.get_worksheet_col_map(worksheet)
+    
+        for key, value in module_col_map.items():
+            cell_coordinate = datatype_col_map[key]
+        
+            n_options = len(workbook['Datatype Map'][cell_coordinate])
+        
+            validation = DataValidation(
+                type="list",
+                formula1=f"'Datatype Map'!${cell_coordinate}$2:${cell_coordinate}${n_options}",
+                #allow_blank=True,
+                #showErrorMessage=True,
+                #errorStyle="stop",
+                #errorTitle="Invalid Datatype",
+                #error="You must select a valid datatype from the provided drop-down menu.",
+            )
+            
+            worksheet.add_data_validation(validation)
+            validation.add(f"{value}2:{value}{max_row}")
+        
+        workbook.save(filename=path)
 
     def _checks_group_split_validity(self):
         """Per-group validity check, generalizing BinaryClassSurv's

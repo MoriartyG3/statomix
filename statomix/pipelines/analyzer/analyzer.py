@@ -7,10 +7,17 @@ from fileverse.formats.yaml import BaseYAML
 from fileverse.formats.zarr import BaseZARR
 from fileverse.formats.excel import BaseExcel
 
+from openpyxl import load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
+
 from statomix.pipelines.base import BasePipeline
-from statomix.analytics.datatypes.survival.single_class_surv import SingleClassSurv
+
+from statomix.analytics.datatypes.survival.thresholds import MinimumPValue
+from statomix.analytics.datatypes.survival import SingleClassSurv, MultiClassSurv
+#from statomix.analytics.datatypes.survival.single_class_surv import SingleClassSurv
 
 from .group_analyzer import GroupAnalyzer
+from .analysis_config import AnalysisConfig
 
 logger = Logger(name="Analyzer").get_logger()
 
@@ -137,23 +144,27 @@ class Analyzer(BasePipeline):
             group_bundle['config']['group'].attrs['meta'] = config_meta
         
         version = config_meta['analysis_config']['latest_version']
-        analysis_config_file_path =  group_bundle['config']['path']/f"analysis_config_version{version}.xlsx"
-        datatype_col_map_path = group_bundle['config']['path']/f"analysis_config_version{version}_datatype_col_map.yaml"
+        analysis_config_path =  group_bundle['config']['path']/f"analysis_config_version{version}.xlsx"
+        # datatype_col_map_path = group_bundle['config']['path']/f"analysis_config_version{version}_datatype_col_map.yaml"
         
-        if analysis_config_file_path.exists():
+        if analysis_config_path.exists():
             logger.info(f"Analysis configuration version:{version} already exists, Set create_new=True to create a new one.")
             return
+
+        AnalysisConfig.create_analysis_config_file(path=analysis_config_path, datatype_map_df=group_analyzer._get_datatype_map_df())
         
-        writer = pd.ExcelWriter(path=analysis_config_file_path, engine='openpyxl')
-        datatype_map_df = group_analyzer._get_datatype_map_df()
-        datatype_map_df.to_excel(excel_writer=writer, sheet_name="Datatype Map", index=False)
-        writer.close()
+        # writer = pd.ExcelWriter(path=analysis_config_path, engine='openpyxl')
+        # datatype_map_df = group_analyzer._get_datatype_map_df()
+        # datatype_map_df.to_excel(excel_writer=writer, sheet_name="Datatype Map", index=False)
+        # writer.close()
         
-        BaseExcel.format_cell_length(path=analysis_config_file_path)
+        # BaseExcel.format_cell_length(path=analysis_config_path)
         
         # workbook =  load_workbook(filename=path)
         # worksheet = workbook['Datatype Map']
         # datatype_col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
         # BaseYAML.save(data=datatype_col_map, path=datatype_col_map_path, replace=create_new)
         
-        shutil.copy(src=analysis_config_file_path, dst=analysis_config_file_path.name)
+        # shutil.copy(src=analysis_config_path, dst=analysis_config_path.name)
+
+    
