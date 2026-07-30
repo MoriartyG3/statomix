@@ -15,10 +15,10 @@ class Analyzer(BasePipeline):
     def _get_default_config_meta(self):
         return {}
 
-    def create_analysis_config(self, version, config_version, analysis_name=None, create_new=False):
-        project_analyzer = self.analyzer
+    def create_analysis_config(self, project, version, config_version, analysis_name=None, create_new=False):
+        #project_analyzer = self.analyzer
         
-        group_bundle = project_analyzer._get_group_bundle(version=version, config_version=config_version)
+        group_bundle = self._get_group_bundle(version=version, config_version=config_version)
     
         config_meta = group_bundle['config']['meta']
         if 'analysis_config' not in config_meta:
@@ -41,4 +41,4 @@ class Analyzer(BasePipeline):
             logger.info(f"Analysis configuration version:{version} already exists, Set create_new=True to create a new one.")
             return
     
-        _create_analysis_config(project=self, version=version, config_version=config_version, path=analysis_config_path)
+        _create_analysis_config(project=project, version=version, config_version=config_version, path=analysis_config_path)
