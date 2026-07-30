@@ -121,7 +121,7 @@ def write_input_sheet(wb, n_rows=50):
 
 
 # ---------------------------------------------------------------------
-def create_analysis_config(project, version, config_version, path):
+def _create_analysis_config(project, version, config_version, path):
     long_df = build_long_format_table(project, version, config_version)
     wb = openpyxl.Workbook()
     write_raw_data_sheet(wb, long_df)

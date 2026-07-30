@@ -19,7 +19,7 @@ from statomix.analytics.datatypes.survival import SingleClassSurv, MultiClassSur
 from .group_analyzer import GroupAnalyzer
 from .analysis_config import AnalysisConfig
 
-logger = Logger(name="Analyzer").get_logger()
+logger = Logger(name="Dataset Analyzer").get_logger()
 
 class Analyzer(BasePipeline):
     def __init__(self, root_group):
@@ -123,7 +123,7 @@ class Analyzer(BasePipeline):
         descriptives_df.to_excel(surv_dir/"descriptives.xlsx")
         BaseExcel.format_cell_length(path=surv_dir/"descriptives.xlsx")
         
-    def create_analysis_config_file(self, version, config_version, analysis_config_version, analysis_name=None, create_new=False):
+    def create_analysis_config(self, version, config_version, analysis_config_version, analysis_name=None, create_new=False):
     
         group_bundle = self._get_group_bundle(version=version, config_version=config_version)
         
@@ -151,7 +151,7 @@ class Analyzer(BasePipeline):
             logger.info(f"Analysis configuration version:{version} already exists, Set create_new=True to create a new one.")
             return
 
-        AnalysisConfig.create_analysis_config_file(path=analysis_config_path, datatype_map_df=group_analyzer._get_datatype_map_df())
+        AnalysisConfig.create_analysis_config(path=analysis_config_path, datatype_map_df=group_analyzer._get_datatype_map_df())
         
         # writer = pd.ExcelWriter(path=analysis_config_path, engine='openpyxl')
         # datatype_map_df = group_analyzer._get_datatype_map_df()

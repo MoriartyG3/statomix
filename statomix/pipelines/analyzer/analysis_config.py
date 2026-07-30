@@ -18,7 +18,7 @@ class AnalysisConfig:
         pass
 
     @staticmethod
-    def create_analysis_config_file(path, datatype_map_df):
+    def create_analysis_config(path, datatype_map_df):
         writer = pd.ExcelWriter(path=path, engine='openpyxl')
         
         datatype_map_df.to_excel(excel_writer=writer, sheet_name="Datatype Map", index=False)
