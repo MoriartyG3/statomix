@@ -4,6 +4,7 @@ from pandas.testing import assert_frame_equal
 
 from fileverse.logger import Logger
 from fileverse.formats.zarr import BaseZARR
+from fileverse.formats.excel import BaseExcel
 
 from statomix.dataset.dataset import Dataset
 
@@ -122,52 +123,21 @@ class Project:
                     logger.info(
                         msg=f"Discovered and loaded existing dataset: '{dataset_name}'"
                     )
-    # def create_analysis_config(self):
+
+    def create_datatype_map_overview(self, version, config_version):
+            group_bundle = self.analyzer._get_group_bundle(version=version, config_version=config_version)
         
-    # def create_col_report(
-    #     self,
-    #     dataset_name,
-    #     report_type="default",
-    #     create_new=False,
-    #     password="statomix",
-    #     lock=False,
-    # ):
-    #     dataset = self.datasets[dataset_name]
+            datatype_map_overview_path = group_bundle['config']['path']/"datatype_map_overview.xlsx"
         
-    #     if report_type == "default":
-    #         zarr_group = dataset.zarr_groups["col_report_default"]
-    #         col_report_default_meta  = zarr_group.attrs.get("col_report_default", {})
+            if datatype_map_overview_path.exists():
+                print("Already exists")
+                return
             
-    #         if 'default' not in col_report_default_meta:
-    #             col_report_default_meta['default'] =  {}
-    #             col_report_default_meta['default']['exists'] = False
-    #             col_report_default_meta['default']['version'] = 0
+            with pd.ExcelWriter(path=datatype_map_overview_path, engine="openpyxl") as writer:
+                for dataset_name, dataset in self.datasets.items():
+                    group_analyzer = dataset.analyzer._get_group_analyzer(version=version, config_version=config_version)
+                    datatype_map_df = group_analyzer._get_datatype_map_df()
                 
-    #         version = col_report_default_meta['default']['version']
-
-    #         if not col_report_default_meta['default']['exists']:
-    #             version = 1
-    #         elif create_new:
-    #             version += 1
-    #         else:
-    #             logger.info(
-    #                 msg=f"{Logger.Emojis.WARN} Default column report version {version} already exists. Set create_new=True to create a new version."
-    #             )
-    #             return
-
-    #         report_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_report_version{version}.xlsx"
-    #         profiles_path = BaseZARR.get_abs_path(zarr_group=zarr_group)/ f"col_profile_version{version}.parquet"
-
-    #         dataset.col_report.create_col_report_default(
-    #             df=dataset.get_source_df(),
-    #             report_path=report_path,
-    #             profiles_path=profiles_path,
-    #             password=password,
-    #             lock=lock,
-    #         )
-
-    #         col_report_default_meta['default']['version'] = version
-    #         col_report_default_meta['default']['exists'] = True
-
-    #         dataset.zarr_groups["col_report_default"].attrs["col_report_default"] = col_report_default_meta 
+                    datatype_map_df.to_excel(excel_writer=writer, sheet_name=dataset_name, index=False)
             
+            BaseExcel.format_cell_length(path=datatype_map_overview_path)

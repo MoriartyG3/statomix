@@ -84,17 +84,15 @@ def write_raw_data_sheet(wb, long_df: pd.DataFrame):
 
 
 # ---------------------------------------------------------------------
-# STEP 3 - Input sheet: Dataset -> Datatype -> Column Name (x N, side by side)
+# STEP 3 - Input sheet: Dataset -> Datatype -> Column Name
 # ---------------------------------------------------------------------
-def write_input_sheet(wb, n_rows=50, n_col_selectors=10):
+def write_input_sheet(wb, n_rows=50):
     ws = wb.create_sheet("Input", 0)
     # UID is column A: empty, freetext - user types a group name/ID to tag
     # rows that belong together (e.g. all rows sharing a UID become one
     # box plot's groups downstream). Not a dropdown, so it gets no
     # DataValidation and no yellow fill - just header + column width.
-    headers = ["UID", "Dataset", "Datatype"] + [
-        f"Column Name {i}" for i in range(1, n_col_selectors + 1)
-    ]
+    headers = ["UID", "Dataset", "Datatype", "Column Name"]
     for col_idx, h in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
         #cell.font, cell.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="4C72B0")
@@ -104,26 +102,21 @@ def write_input_sheet(wb, n_rows=50, n_col_selectors=10):
 
     last_row = 1 + n_rows
 
-    # Dataset -> column B, Datatype -> column C
+    # Dataset -> column B, Datatype -> column C, Column Name -> column D
     dv = DataValidation(type="list", formula1="=DatasetList", allow_blank=True)
     ws.add_data_validation(dv); dv.add(f"B2:B{last_row}")
 
     dv = DataValidation(type="list", formula1="=CategoryList", allow_blank=True)
     ws.add_data_validation(dv); dv.add(f"C2:C{last_row}")
 
-    # Column Name selectors -> columns D, E, F, ... (side by side), each one
-    # driven by the SAME row's Dataset (B) + Datatype (C), so a user can pick
-    # several columns for one Dataset/Datatype pair on a single row.
     formula = f'=INDIRECT("NR_"&{sanitize_formula("$B2")}&"_"&{sanitize_formula("$C2")})'
-    for i in range(n_col_selectors):
-        col_letter = get_column_letter(4 + i)  # D, E, F, ...
-        dv = DataValidation(type="list", formula1=formula, allow_blank=True)
-        ws.add_data_validation(dv); dv.add(f"{col_letter}2:{col_letter}{last_row}")
+    dv = DataValidation(type="list", formula1=formula, allow_blank=True)
+    ws.add_data_validation(dv); dv.add(f"D2:D{last_row}")
 
-    # Yellow fill only on dropdown columns (B, C, D...) - UID (A) stays
+    # Yellow fill only on dropdown columns (B, C, D) - UID (A) stays
     # plain since it's freetext, not a pick-from-list cell.
     # for r in range(2, last_row + 1):
-    #     for c in range(2, 4 + n_col_selectors):
+    #     for c in range(2, 5):
     #         ws.cell(row=r, column=c).fill = PatternFill("solid", fgColor="FFFF00")
 
 
