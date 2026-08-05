@@ -121,7 +121,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.cm import get_cmap
+#from matplotlib.cm import get_cmap
 
 
 from lifelines import CoxPHFitter
@@ -538,7 +538,7 @@ class MultiClassSurv:
 
         fig, ax = plt.subplots(figsize=(12, 8))
 
-        cmap = get_cmap("tab10")
+        cmap = plt.get_cmap("tab10")
         kmfs_for_table = []
         labels_for_table = []
         for idx in range(self.n_groups):
