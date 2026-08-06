@@ -312,7 +312,7 @@ class Cleaner(BasePipeline):
             version = version_meta['version']
             config_version = config_meta['version']
             logger.info(f"Survival categorical metadata edit schema already exists for version: {version} and config_version:{config_version}")
-            #return
+            return
             
         curated_meta_report = pd.ExcelFile(meta_report_curated_path)
         
@@ -342,7 +342,7 @@ class Cleaner(BasePipeline):
             version = version_meta['version']
             config_version = config_meta['version']
             logger.info(f"Curated data already exists for version:{version} and config_version:{config_version}")
-            #return
+            return
         
         curated_data_meta = curated_data_group.attrs.get("meta", {})
         curated_data_meta["curated_data_exists"] =  False
