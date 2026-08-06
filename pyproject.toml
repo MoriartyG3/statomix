@@ -33,4 +33,4 @@ dev = [
 ]
 
 [tool.uv.sources]
-fileverse17 = { git = "ssh://git@github.com/MoriartyG3/fileverse17.git" }
+fileverse17 = { git = "https://github.com/MoriartyG3/fileverse17.git", branch = "main" }

@@ -245,7 +245,7 @@ wheels = [
 [[package]]
 name = "fileverse17"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/MoriartyG3/fileverse17.git#e120738c15ffb6770ff5b18640d840f594b2b100" }
+source = { git = "https://github.com/MoriartyG3/fileverse17.git?branch=main#a5af758d8a8f3accefe3726307466ed85607e9b5" }
 dependencies = [
     { name = "boto3" },
     { name = "colorlog" },
@@ -1294,7 +1294,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fileverse17", git = "ssh://git@github.com/MoriartyG3/fileverse17.git" },
+    { name = "fileverse17", git = "https://github.com/MoriartyG3/fileverse17.git?branch=main" },
     { name = "lifelines", specifier = ">=0.30.0" },
     { name = "matplotlib", specifier = ">=3.11.1" },
     { name = "numpy", specifier = ">=2.5.1" },
