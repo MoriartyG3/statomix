@@ -37,7 +37,7 @@ class BasePipeline(ABC):
         config_group = self.get_config_group(
             version=config_version, 
             version_group=version_group, 
-            config_name=config_name, 
+            name=config_name, 
             create_new=config_version_create_new
         )
         
@@ -119,7 +119,7 @@ class BasePipeline(ABC):
         return version_group
 
     def get_config_group(
-        self, version, version_group, config_name, create_new
+        self, version, version_group, name, create_new
     ):
         version_meta = version_group.attrs["meta"]
 
@@ -172,7 +172,7 @@ class BasePipeline(ABC):
 
         if "version" not in config_meta:
             config_meta["version"] = version
-            config_meta["config_name"] = config_name
+            config_meta["name"] = name
 
             default_config_meta = self._get_default_config_meta()
             config_meta.update(default_config_meta)
