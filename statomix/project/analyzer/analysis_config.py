@@ -1,28 +1,26 @@
-import re
 import pandas as pd
 
 import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.defined_name import DefinedName
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 
+KEY_SEP = "|"
+
+
 def sanitize(name: str) -> str:
-    name = re.sub(r"[^0-9A-Za-z]+", "_", str(name).strip())
-    return "N_" + name if not name or name[0].isdigit() else name
+    """One character in -> one character out.
 
-
-def sanitize_formula(cell_ref: str) -> str:
-    expr = cell_ref
-    for ch in [" ", "-", "(", ")", ".", "/", ","]:
-        expr = f'SUBSTITUTE({expr},"{ch}","_")'
-    return expr
+    Deliberately does NOT collapse runs of specials and does NOT strip, so the
+    mapping is total and reproducible.  No leading-digit prefix is needed
+    because every generated name is prefixed with 'NR_' by the caller.
+    """
+    return "".join(ch if ch.isalnum() else "_" for ch in str(name))
 
 
 # ---------------------------------------------------------------------
-# STEP 1 - datatype_map is already a DataFrame (Identifier/Numerical/...
-# columns, each a list of column names) -> pd.melt turns it straight into
-# long rows. No manual per-category looping needed.
+# STEP 1 - long-format table
 # ---------------------------------------------------------------------
 def build_long_format_table(project, version, config_version) -> pd.DataFrame:
     frames = []
@@ -32,45 +30,80 @@ def build_long_format_table(project, version, config_version) -> pd.DataFrame:
         )
         datatype_map = group_analyzer._get_datatype_map_df()
 
-        melted = datatype_map.melt(var_name="Datatype", value_name="Column Name").dropna()
+        melted = (
+            datatype_map.melt(var_name="Datatype", value_name="Column Name")
+            .dropna(subset=["Column Name"])
+        )
+        melted["Column Name"] = melted["Column Name"].astype(str).str.strip()
+        melted = melted[melted["Column Name"] != ""]
         melted.insert(0, "Dataset Name", dataset_name)
         frames.append(melted)
 
+    if not frames:
+        raise ValueError("project.datasets is empty - nothing to write.")
+
     long_df = pd.concat(frames, ignore_index=True)
-    # Sort so each (Dataset Name, Datatype) combo is a contiguous block
-    long_df = long_df.sort_values(["Dataset Name", "Datatype"], kind="stable").reset_index(drop=True)
+    long_df = long_df.drop_duplicates(subset=["Dataset Name", "Datatype", "Column Name"])
+
+    if long_df.empty:
+        raise ValueError("No (dataset, datatype, column) rows were produced.")
+
+    # Sort so each (Dataset Name, Datatype) combo is one contiguous block.
+    long_df = long_df.sort_values(
+        ["Dataset Name", "Datatype"], kind="stable"
+    ).reset_index(drop=True)
     long_df.insert(0, "Index", range(1, len(long_df) + 1))
     return long_df
 
 
 # ---------------------------------------------------------------------
-# STEP 2 - write the table, then use groupby (not a manual row-walk) to
-# find each block's start/end row and register its named range.
+# STEP 2 - hidden Raw Data sheet
+#   A: Index   B: Dataset Name   C: Datatype   D: Column Name   E: Key
+#   G: DatasetNames   H: Datatypes
 # ---------------------------------------------------------------------
 def write_raw_data_sheet(wb, long_df: pd.DataFrame):
     ws = wb.active
     ws.title = "Raw Data"
 
-    for col_idx, h in enumerate(["Index", "Dataset Name", "Datatype", "Column Name"], start=1):
+    headers = ["Index", "Dataset Name", "Datatype", "Column Name", "Key"]
+    for col_idx, h in enumerate(headers, start=1):
         ws.cell(row=1, column=col_idx, value=h).font = Font(bold=True)
+
     for r, row in enumerate(long_df.itertuples(index=False), start=2):
         for c, val in enumerate(row, start=1):
             ws.cell(row=r, column=c, value=val)
+        # Key column: what the Input sheet matches against.
+        ws.cell(row=r, column=5, value=f"{row[1]}{KEY_SEP}{row[2]}")
 
-    # Since long_df is sorted, groupby(sort=False) yields each combo's rows
-    # already contiguous - min/max of the group's positional index gives
-    # the block's start/end row directly (+2 = header row + 0-based offset).
-    for (ds_name, dt_name), group in long_df.groupby(["Dataset Name", "Datatype"], sort=False):
+    last_row = 1 + len(long_df)
+    wb.defined_names["KeyList"] = DefinedName(
+        "KeyList", attr_text=f"'Raw Data'!$E$2:$E${last_row}"
+    )
+
+    # Named ranges per block. Not used by the dropdowns any more (see
+    # write_input_sheet) but handy for other formulas / debugging.
+    seen = {}
+    for (ds_name, dt_name), group in long_df.groupby(
+        ["Dataset Name", "Datatype"], sort=False
+    ):
         start_row, end_row = group.index.min() + 2, group.index.max() + 2
-        safe_name = f"NR_{sanitize(ds_name)}_{sanitize(dt_name)}"
+        assert end_row - start_row + 1 == len(group), "block is not contiguous"
+
+        safe_name = f"NR_{sanitize(ds_name)}_{sanitize(dt_name)}"[:255]
+        if safe_name in seen:
+            raise ValueError(
+                f"Defined-name collision: {(ds_name, dt_name)} and {seen[safe_name]} "
+                f"both sanitize to {safe_name!r}."
+            )
+        seen[safe_name] = (ds_name, dt_name)
         wb.defined_names[safe_name] = DefinedName(
             safe_name, attr_text=f"'Raw Data'!$D${start_row}:$D${end_row}"
         )
 
-    # Fixed lists for the two parent dropdowns
+    # Fixed lists for the two parent dropdowns.
     for col, header, values, range_name in [
-        (6, "DatasetNames", long_df["Dataset Name"].unique(), "DatasetList"),
-        (7, "Datatypes", long_df["Datatype"].unique(), "CategoryList"),
+        (7, "DatasetNames", long_df["Dataset Name"].unique(), "DatasetList"),
+        (8, "Datatypes", long_df["Datatype"].unique(), "CategoryList"),
     ]:
         letter = get_column_letter(col)
         ws.cell(row=1, column=col, value=header).font = Font(bold=True)
@@ -84,56 +117,63 @@ def write_raw_data_sheet(wb, long_df: pd.DataFrame):
 
 
 # ---------------------------------------------------------------------
-# STEP 3 - Input sheet: Dataset -> Datatype -> Column Name (x N, side by side)
+# STEP 3 - Input sheet
 # ---------------------------------------------------------------------
 def write_input_sheet(wb, n_rows=50, n_col_selectors=10):
     ws = wb.create_sheet("Input", 0)
-    # UID is column A: empty, freetext - user types a group name/ID to tag
-    # rows that belong together (e.g. all rows sharing a UID become one
-    # box plot's groups downstream). Not a dropdown, so it gets no
-    # DataValidation and no yellow fill - just header + column width.
-    headers = ["UID", "Dataset", "Datatype"] + [
+
+    headers = ["Title", "Subtitle", "Dataset", "Datatype"] + [
         f"Column Name {i}" for i in range(1, n_col_selectors + 1)
     ]
     for col_idx, h in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
-        #cell.font, cell.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="4C72B0")
-        cell.font = Font(bold=True, color="000000")
+        cell.font = Font(name="Arial", bold=True)
         cell.alignment = Alignment(horizontal="center")
         ws.column_dimensions[get_column_letter(col_idx)].width = 24
 
+    # Column positions are derived from `headers`, never hard-coded, so
+    # inserting a column can't silently desync the validations.
+    ds_col = get_column_letter(headers.index("Dataset") + 1)
+    dt_col = get_column_letter(headers.index("Datatype") + 1)
+    first_sel = headers.index("Column Name 1") + 1
+
     last_row = 1 + n_rows
 
-    # Dataset -> column B, Datatype -> column C
-    dv = DataValidation(type="list", formula1="=DatasetList", allow_blank=True)
-    ws.add_data_validation(dv); dv.add(f"B2:B{last_row}")
+    dv_ds = DataValidation(type="list", formula1="=DatasetList", allow_blank=True)
+    ws.add_data_validation(dv_ds)
+    dv_ds.add(f"{ds_col}2:{ds_col}{last_row}")
 
-    dv = DataValidation(type="list", formula1="=CategoryList", allow_blank=True)
-    ws.add_data_validation(dv); dv.add(f"C2:C{last_row}")
+    dv_dt = DataValidation(type="list", formula1="=CategoryList", allow_blank=True)
+    ws.add_data_validation(dv_dt)
+    dv_dt.add(f"{dt_col}2:{dt_col}{last_row}")
 
-    # Column Name selectors -> columns D, E, F, ... (side by side), each one
-    # driven by the SAME row's Dataset (B) + Datatype (C), so a user can pick
-    # several columns for one Dataset/Datatype pair on a single row.
-    formula = f'=INDIRECT("NR_"&{sanitize_formula("$B2")}&"_"&{sanitize_formula("$C2")})'
+    # Column-name selectors, all driven by the SAME row's Dataset + Datatype.
+    # OFFSET/MATCH against the Key column instead of INDIRECT+SUBSTITUTE:
+    # no name sanitising to keep in sync, and it stays well under Excel's
+    # 255-character limit for a data-validation formula.
+    key = f'${ds_col}2&"{KEY_SEP}"&${dt_col}2'
+    formula = (
+        f"=OFFSET('Raw Data'!$D$1,MATCH({key},KeyList,0),0,COUNTIF(KeyList,{key}),1)"
+    )
+    assert len(formula) <= 255, f"DV formula too long ({len(formula)} chars)"
+
+    dv_col = DataValidation(type="list", formula1=formula, allow_blank=True)
+    ws.add_data_validation(dv_col)
     for i in range(n_col_selectors):
-        col_letter = get_column_letter(4 + i)  # D, E, F, ...
-        dv = DataValidation(type="list", formula1=formula, allow_blank=True)
-        ws.add_data_validation(dv); dv.add(f"{col_letter}2:{col_letter}{last_row}")
+        letter = get_column_letter(first_sel + i)
+        dv_col.add(f"{letter}2:{letter}{last_row}")
 
-    # Yellow fill only on dropdown columns (B, C, D...) - UID (A) stays
-    # plain since it's freetext, not a pick-from-list cell.
-    # for r in range(2, last_row + 1):
-    #     for c in range(2, 4 + n_col_selectors):
-    #         ws.cell(row=r, column=c).fill = PatternFill("solid", fgColor="FFFF00")
+    ws.freeze_panes = "A2"
 
 
 # ---------------------------------------------------------------------
-def _create_analysis_config(project, version, config_version, path):
+def _create_analysis_config(
+    project, version, config_version, path, n_rows=50, n_col_selectors=10
+):
     long_df = build_long_format_table(project, version, config_version)
     wb = openpyxl.Workbook()
     write_raw_data_sheet(wb, long_df)
-    write_input_sheet(wb)
+    write_input_sheet(wb, n_rows=n_rows, n_col_selectors=n_col_selectors)
     wb.active = wb.sheetnames.index("Input")
     wb.save(path)
-    #print(f"Saved: {output_path}  ({len(long_df)} rows)")
-    #return long_df
+    return long_df
