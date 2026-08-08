@@ -271,8 +271,14 @@ class MinimumPValue:
         iterator = tqdm(thresholds) if self.show_progress else thresholds
         mpv_dicts = []
         for threshold in iterator:
+
+            try:
+                mpv_data = self._get_mpv_data_at_threshold(threshold=threshold)
+            except Exception as e:
+                logger.error(f"Error: {e}\nThreshold:{threshold}")
+                continue
         
-            mpv_data = self._get_mpv_data_at_threshold(threshold=threshold)
+            #mpv_data = self._get_mpv_data_at_threshold(threshold=threshold)
             mpv_dicts.append(mpv_data["mpv_dict"])
 
         if self.target_col_stats['median'] not in thresholds:
@@ -300,6 +306,11 @@ class MinimumPValue:
         tests_dicts = []
         for threshold_dict in self.marked_threshold_dicts:
             idx = threshold_dict['idx']
+
+            if idx is None:
+                logger.info(f"No valid cut-off for {threshold_dict['label']}.")
+                continue
+            
             threshold = self.mpv_df.iloc[idx]['threshold']
             mpv_data = self._get_mpv_data_at_threshold(threshold=threshold)
             bcs = mpv_data['binary_class_surv_object']
