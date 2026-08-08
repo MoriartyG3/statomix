@@ -111,7 +111,8 @@ class MinimumPValue:
         self.groups = {}
         self.groups['root'] = root_group
         clean_col_name = clean_path_name(path=self.target_col_stats['name'])
-        self.groups['col'] = self.groups['root'].root_group.require_group(f"{str(clean_col_name)}_trunc_pct_{self.trunc_pct}_iqr_multiplier_{self.iqr_multiplier}")
+        self.groups['col_general'] = self.groups['root'].root_group.require_group(f"{str(clean_col_name)}_trunc_pct_{self.trunc_pct}_iqr_multiplier_{self.iqr_multiplier}")
+        self.groups['col'] = self.groups['col_general'].require_group(self.surv_label)
 
         col_group = self.groups['col']
         col_meta = col_group.attrs.get("meta", {})
