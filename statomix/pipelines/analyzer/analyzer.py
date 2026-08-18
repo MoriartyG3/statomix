@@ -75,7 +75,11 @@ class Analyzer(BasePipeline):
             
         group_analyzer.create_summary_report(path=summary_report_path)
 
-        self._create_surv_summary_report()
+        #self._create_surv_summary_report()
+        self._create_surv_summary_report(
+            version=group_bundle["version"]["meta"]["version"],
+            config_version=group_bundle["config"]["meta"]["version"],
+        )
 
     def _create_surv_summary_report(self, version=None, config_version=None):
         group_bundle = self._get_group_bundle(version=version, config_version=config_version)

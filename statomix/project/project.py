@@ -21,7 +21,7 @@ class Project:
         self._create_groups()
         
         self._discover_datasets()
-        #self._init_meta()
+        self._init_meta()
 
         self.analyzer = Analyzer(root_group = self.groups["analyzer_root"], dataset_name="project_datasets")
 
@@ -39,13 +39,13 @@ class Project:
             "project_analyzer"
         ) 
 
-    # def _init_meta(self):
-    #     root_group = self.groups['root']
+    def _init_meta(self):
+        root_group = self.groups['root']
         
     #     if 'meta' in root_group.attrs:
     #         return
             
-    #     root_group.attrs['meta'] = {}
+        root_group.attrs['project_name'] = self.project_name
     #     root_meta = root_group.attrs['meta']
         
     #     if 'project_level_analysis' not in root_meta:

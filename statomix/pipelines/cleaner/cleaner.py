@@ -51,7 +51,7 @@ class Cleaner(BasePipeline):
             version_create_new=create_new,
             config_version=config_version,
             config_name=config_name,
-            config_version_create_new=create_new,
+            config_version_create_new=False,
         )
 
         version_meta = group_bundle["version"]["meta"]
