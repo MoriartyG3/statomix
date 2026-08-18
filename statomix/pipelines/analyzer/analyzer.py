@@ -19,11 +19,12 @@ from statomix.analytics.datatypes.survival import SingleClassSurv, MultiClassSur
 from .group_analyzer import GroupAnalyzer
 from .analysis_config import AnalysisConfig
 
-logger = Logger(name="Dataset Analyzer").get_logger()
+logger = Logger(name="dataset_analyzer").get_logger()
 
 class Analyzer(BasePipeline):
-    def __init__(self, root_group):
-        super().__init__(root_group=root_group)
+    
+    def __init__(self, root_group, dataset_name):
+        super().__init__(root_group=root_group, dataset_name=dataset_name, pipeline_name="dataset_analyzer")
 
     def _get_default_version_meta(self):
         return {}

@@ -1,17 +1,33 @@
+from pathlib import Path
 from abc import ABC, abstractmethod
 
 from fileverse.formats.zarr import BaseZARR
 
+PWD = Path.cwd()
+
 class BasePipeline(ABC):
-    def __init__(self, root_group):
+    def __init__(self, root_group, dataset_name, pipeline_name):
 
         self.root_group = root_group
+        self.dataset_name = dataset_name
+        self.pipeline_name = pipeline_name
         self.meta = self.root_group.attrs.get("meta", {})
 
         if "latest_version" not in self.meta:
             self.meta["latest_version"] = 1
             self.meta["version_history"] = [1]
             self._save_meta()
+
+        self._create_groups_and_paths()
+
+    def _create_groups_and_paths(self):
+        self.groups = {}
+        self.groups['root'] = self.root_group
+        self.groups['user_config'] = BaseZARR(path=f"statomix_config/{self.pipeline_name}").root_group
+
+        self.paths = {}
+        self.paths["root"] = BaseZARR.get_abs_path(self.groups['root'])
+        self.paths['user_config'] = BaseZARR.get_abs_path(self.groups['user_config'])
 
         self._group_cache = {}
         self._group_cache["version"] = {}

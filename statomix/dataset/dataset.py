@@ -6,14 +6,14 @@ from fileverse.logger import Logger
 from fileverse.formats.yaml import BaseYAML
 from fileverse.formats.zarr import BaseZARR
 
-logger = Logger(name="Dataset").get_logger()
+logger = Logger(name="dataset").get_logger()
 
 class Dataset(BaseDataset):
     def __init__(self, dataset_name, root_group, df = None):
         super().__init__(dataset_name=dataset_name, root_group=root_group, df=df)
 
-        self.cleaner = Cleaner(df_path = self.paths['df']['source'], root_group=self.groups['cleaner'])
-        self.analyzer = Analyzer(root_group =  self.groups['analyzer'])
+        self.cleaner = Cleaner(df_path = self.paths['df']['source'], root_group=self.groups['cleaner'], dataset_name=dataset_name)
+        self.analyzer = Analyzer(root_group =  self.groups['analyzer'], dataset_name=dataset_name)
 
     def configure_analyzer(self, version=None, config_version=None, create_new=False):
 

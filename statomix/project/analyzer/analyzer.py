@@ -3,12 +3,12 @@ from statomix.project.analyzer.analysis_config import _create_analysis_config
 
 from fileverse.logger import Logger
 
-logger = Logger(name="Project Analyzer").get_logger()
+logger = Logger(name="project_analyzer").get_logger()
 
 
 class Analyzer(BasePipeline):
-    def __init__(self, root_group):
-        super().__init__(root_group=root_group)
+    def __init__(self, root_group, dataset_name):
+        super().__init__(root_group=root_group, dataset_name=dataset_name, pipeline_name="project_analyzer")
 
     def _get_default_version_meta(self):
         return {}

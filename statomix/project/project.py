@@ -23,7 +23,7 @@ class Project:
         self._discover_datasets()
         #self._init_meta()
 
-        self.analyzer = Analyzer(root_group = self.groups["analyzer_root"])
+        self.analyzer = Analyzer(root_group = self.groups["analyzer_root"], dataset_name="project_datasets")
 
     def _create_groups(self):
         
@@ -33,10 +33,10 @@ class Project:
         self.groups = {}
         self.groups["root"] = self._zarr_storage.root_group
         self.groups["datasets_root"] = self.groups["root"].require_group(
-            "Datasets"
+            "datasets"
         )
         self.groups["analyzer_root"] = self.groups["root"].require_group(
-            "Analyzer"
+            "project_analyzer"
         ) 
 
     # def _init_meta(self):
