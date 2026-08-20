@@ -218,6 +218,7 @@ class MinimumPValue:
             surv_label=self.surv_label,
             alpha=self.alpha,
             baseline_group=low_label,
+            verbose=False
         )
 
         tests_dict = bcs.get_tests_dict()
@@ -249,6 +250,10 @@ class MinimumPValue:
         col_meta["mpv_data_exists"] = False
         
         self._create_mpv_df(replace=replace)
+
+        if "cox_ph.p_value" not in self.mpv_df.columns:
+            logger.warning(f"No valid splits for Cox-PH in {self.surv_label}:{self.target_col_stats['name']}, skipping mpv data creation.")
+            return
         
         self._save_marked_thresholds_data(replace=replace)
         
@@ -349,11 +354,15 @@ class MinimumPValue:
         median_idx = median_matches[0] if len(median_matches) > 0 else (
             mpv_df["threshold"] - target_median
         ).abs().idxmin()
-    
-        min_p_val_idx = mpv_df[p_value_col].idxmin()
-    
-        sig = mpv_df[mpv_df[p_value_col] < self.alpha]
-        closest_idx = None if sig.empty else (sig["threshold"] - target_median).abs().idxmin()
+
+        if p_value_col in mpv_df.columns:
+            min_p_val_idx = mpv_df[p_value_col].idxmin()
+            sig = mpv_df[mpv_df[p_value_col] < self.alpha]
+            closest_idx = None if sig.empty else (sig["threshold"] - target_median).abs().idxmin()
+        else:
+            closest_idx = None
+            min_p_val_idx = None
+            logger.warning(f"No valid splits for Cox-PH, skipping min p-value marker.")
     
         return [
             {"label": "Median", "idx": median_idx, "color": "blue", "ls": "--"},
@@ -437,8 +446,13 @@ class MinimumPValue:
             fig, ax = plt.subplots(figsize=figsize)
     
         x = self.mpv_df.index
-        cox_p = (np.clip(self.mpv_df["cox_ph.p_value"].to_numpy(), 1e-300, None)
-                  if log_scale else self.mpv_df["cox_ph.p_value"].to_numpy())
+        if "cox_ph.p_value" in self.mpv_df.columns:
+            cox_p = (np.clip(self.mpv_df["cox_ph.p_value"].to_numpy(), 1e-300, None)
+                    if log_scale else self.mpv_df["cox_ph.p_value"].to_numpy())
+        else:
+            cox_p = np.full_like(x, np.nan)
+            logger.warning(f"No valid splits for Cox-PH, skipping Cox PH p-value plot.")
+
         lr_p = (np.clip(self.mpv_df["log_rank.p_value"].to_numpy(), 1e-300, None)
                  if log_scale else self.mpv_df["log_rank.p_value"].to_numpy())
     

@@ -462,7 +462,7 @@ class SingleClassSurv:
         plot: bool = True,
         title: str | None = None,
         save_path: str | None = None,
-        plot_grid: bool = True,
+        plot_grid: bool = False,
         x_axis_range=None,
         add_risk_table: bool = True,
         plot_whole_y_axis: bool = True,

@@ -134,6 +134,7 @@ class BinaryClassSurv:
         alpha: float = 0.05,
         baseline_group: str = "largest",
         censoring: str = "right",
+        verbose=True,
     ):
         required_cols = {"time", "event"}
         missing = required_cols - set(surv_df_binary.columns)
@@ -141,6 +142,7 @@ class BinaryClassSurv:
             raise ValueError(
                 f"surv_df_binary is missing required column(s): {sorted(missing)}"
             )
+        self.verbose = verbose
         self.alpha = alpha
         # self.cox_ph_dict = {"not_created": "method self.create_cox_ph_dict() not called."}
         # self.log_rank_dict = {"not_created": "method self.create_log_rank_dcit() not called."}
@@ -253,26 +255,29 @@ class BinaryClassSurv:
         if group0_n <= 1 or group1_n <= 1:
             self.split_valid = False
             self.split_invalid_reason = "group_size_1"
-            logger.warning(
-                f"[INVALID SPLIT] {self.split_invalid_reason}: "
-                f"group0_n={group0_n}, group1_n={group1_n}"
-            )
+            if self.verbose:
+                logger.warning(
+                    f"[INVALID SPLIT] {self.split_invalid_reason}: "
+                    f"group0_n={group0_n}, group1_n={group1_n}"
+                )
 
         elif group0_events == 0 or group1_events == 0:
             self.split_valid = False
             self.split_invalid_reason = "no_events"
-            logger.warning(
-                f"[INVALID SPLIT] {self.split_invalid_reason}: "
-                f"group0_events={group0_events}, group1_events={group1_events}"
-            )
+            if self.verbose:
+                logger.warning(
+                    f"[INVALID SPLIT] {self.split_invalid_reason}: "
+                    f"group0_events={group0_events}, group1_events={group1_events}"
+                )
 
         elif group0_censored == 0 or group1_censored == 0:
             self.split_valid = False
             self.split_invalid_reason = "no_censoring"
-            logger.warning(
-                f"[INVALID SPLIT] {self.split_invalid_reason}: "
-                f"group0_censored={group0_censored}, group1_censored={group1_censored}"
-            )
+            if self.verbose:
+                logger.warning(
+                    f"[INVALID SPLIT] {self.split_invalid_reason}: "
+                    f"group0_censored={group0_censored}, group1_censored={group1_censored}"
+                )
 
         # elif group0_n < 10 or group1_n < 10:
         #     self.split_valid = False
@@ -361,6 +366,8 @@ class BinaryClassSurv:
 
         log_rank_dict = {
             "p_value": log_rank_results.p_value,
+
+            "p_value_label": get_p_value_label(log_rank_results.p_value),
             
             "group0_n": self.surv_df0.shape[0],
             "group1_n": self.surv_df1.shape[0],
@@ -391,7 +398,8 @@ class BinaryClassSurv:
             return tests_dict["cox_ph"]
         
         if not self.split_valid:
-            logger.warning(f"[INVALID SPLIT] Group split not valid due to {self.split_invalid_reason}")
+            if self.verbose:
+                logger.warning(f"[INVALID SPLIT] Group split not valid due to {self.split_invalid_reason}")
             cox_ph_dict = {
                 "split_valid": self.split_valid,
                 "split_invalid_reason": self.split_invalid_reason,
@@ -452,6 +460,7 @@ class BinaryClassSurv:
             # Guaranteed identical to self.baseline_label -- this is the
             # actual resolved category, never the raw "largest"/"smallest"
             # keyword the caller may have passed in.
+            "split_valid": self.split_valid,
             "baseline_group": baseline_label,
             "hr": {'raw':{'hr':hr, 'ci_lower':hr_ci[0], 'ci_upper':hr_ci[1]}},
             #"hr": hr,
@@ -479,7 +488,7 @@ class BinaryClassSurv:
         plot=True,
         title=None,
         save_path=None,
-        plot_grid=True,
+        plot_grid=False,
         x_axis_range=None,
         add_risk_table=True,
     ):
@@ -536,22 +545,44 @@ class BinaryClassSurv:
                 # )
                 cox_ph_dict = self.get_cox_ph_dict()
 
-            plt.text(
-                x=0.05,
-                y=0.15,
-                s=cox_ph_dict['hr']['label'],
-                transform=ax.transAxes,
-                fontsize=9,
-                verticalalignment="top",
-            )
-            plt.text(
-                x=0.05,
-                y=0.10,
-                s=cox_ph_dict["p_value_label"],
-                transform=ax.transAxes,
-                fontsize=9,
-                verticalalignment="top",
-            )
+            if cox_ph_dict['split_valid']:
+                plt.text(
+                    x=0.05,
+                    y=0.15,
+                    s=cox_ph_dict['hr']['label'],
+                    transform=ax.transAxes,
+                    fontsize=9,
+                    verticalalignment="top",
+                )
+
+                plt.text(
+                    x=0.05,
+                    y=0.10,
+                    s=cox_ph_dict["p_value_label"],
+                    transform=ax.transAxes,
+                    fontsize=9,
+                    verticalalignment="top",
+                )
+            else:
+                plt.text(
+                    x=0.05,
+                    y=0.15,
+                    s="Invalid Split: " + cox_ph_dict['split_invalid_reason'],
+                    transform=ax.transAxes,
+                    fontsize=9,
+                    verticalalignment="top",
+                )
+
+                log_rank_dict = self.get_log_rank_dict()
+                plt.text(
+                    x=0.05,
+                    y=0.10,
+                    s=log_rank_dict["p_value_label"],
+                    transform=ax.transAxes,
+                    fontsize=9,
+                    verticalalignment="top",
+                )
+
 
         if plot_grid:
             plt.grid(True)

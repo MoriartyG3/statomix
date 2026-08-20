@@ -516,7 +516,7 @@ class MultiClassSurv:
         plot=True,
         title=None,
         save_path=None,
-        plot_grid=True,
+        plot_grid=False,
         x_axis_range=None,
         add_risk_table=True,
     ):
