@@ -182,6 +182,16 @@ class Cleaner(BasePipeline):
             path=col_profiles_curated_path
         )
 
+        if not any(
+            profile.col_type == DataTypes.CATEGORICAL
+            for profile in col_profiles_curated.values()
+        ):
+            logger.info(
+                "No categorical columns found. "
+                "Categorical metadata report is not applicable."
+            )
+            return
+
         rename_mapping_path = req_base_path / "rename_mapping.yaml"
         rename_mapping = BaseYAML.load(path=rename_mapping_path)
 
@@ -232,6 +242,31 @@ class Cleaner(BasePipeline):
             config_version = config_meta["version"]
             logger.info(
                 f"Categorical metadata edit schema already exists for version: {version} and config_version:{config_version}"
+            )
+            return
+
+        # Handle datasets with no categorical columns.
+        version_base_path = group_bundle["version"]["path"]
+        col_profiles_curated_path = (
+            version_base_path / "col_profiles_curated.parquet"
+        )
+
+        col_profiles_curated = self.col_report.load_col_profiles(
+            path=col_profiles_curated_path
+        )
+
+        has_categorical_columns = any(
+            profile.col_type == DataTypes.CATEGORICAL
+            for profile in col_profiles_curated.values()
+        )
+
+        if not has_categorical_columns:
+            CatMetaEditSchema(cat_edits={}).save(
+                path=meta_edit_schema_path
+            )
+            logger.info(
+                "No categorical columns found. "
+                "Created an empty categorical edit schema."
             )
             return
 

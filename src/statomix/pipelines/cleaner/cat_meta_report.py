@@ -49,7 +49,11 @@ class CatMetaEditSchema:
                 row_dict["category"] = str(row_dict["category"])
                 categorical_rows.append(row_dict)
 
-        pd.DataFrame(categorical_rows).to_parquet(path=path)
+        #pd.DataFrame(categorical_rows).to_parquet(path=path)
+        pd.DataFrame(
+            categorical_rows,
+            columns=["col_name", "category", "rename_to", "remove"],
+        ).to_parquet(path=path, index=False)
 
 
     @staticmethod
