@@ -1,18 +1,20 @@
-import pandas as pd
-from pathlib import Path
-from dataclasses import dataclass
 from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import ClassVar
 
+import pandas as pd
+from fileverse.formats.excel import BaseExcel
+from fileverse.logger import Logger
 from openpyxl import load_workbook
+from openpyxl.styles import Protection
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, Protection, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from .col_semantic_rules import DataTypes
-from .col_profiler import ColProfiler, ColProfile
+from statomix.pipelines.artifacts import frame_from_rows
 
-from fileverse.logger import Logger
-from fileverse.formats.excel import BaseExcel
+from .col_profiler import ColProfile, ColProfiler
+from .col_semantic_rules import DataTypes
 
 logger = Logger(name="col_report").get_logger()
 
@@ -128,28 +130,38 @@ class ColEditSchema:
 
     edits: dict[str, ColEdit]
 
-    def save(
-        self, path: Path
-    ) -> None:  # schema: ColEditSchema, save_path: Path) -> None:
-        """
-        Converts the ColEditSchema to a DataFrame and saves it as a CSV.
-        """
-        # Convert dictionary of ColEdit objects to a list of dictionaries
+    PARQUET_SCHEMA: ClassVar[dict[str, str]] = {
+        "col_name": "object",
+        "remove": "boolean",
+        "change_col_name": "object",
+        "change_datatype": "object",
+    }
+
+    @classmethod
+    def empty(cls) -> "ColEditSchema":
+        return cls(edits={})
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.edits
+
+    def save(self, path: Path) -> None:
+        """Save this edit schema as a parquet artifact."""
         rows = [edit.to_dict() for edit in self.edits.values()]
 
-        df = pd.DataFrame(data=rows)
+        df = frame_from_rows(
+            rows=rows,
+            schema=self.PARQUET_SCHEMA,
+        )
         df.to_parquet(path=path, index=False)
 
     @classmethod
     def load(cls, path: Path) -> "ColEditSchema":
-        """
-        Loads the CSV and reconstructs the ColEditSchema object.
-        """
+        """Load a parquet artifact and reconstruct the edit schema."""
         df = pd.read_parquet(path=path)
 
         edits: dict[str, ColEdit] = {}
         for _, row in df.iterrows():
-            # Use the static method you defined in the ColEdit class
             edit = ColEdit.from_dict(row.to_dict())
             edits[edit.col_name] = edit
 
@@ -171,9 +183,11 @@ class ColReport:
     ):
         assert report_path.suffix == ".xlsx", "report_path should be a .xlsx path."
         if report_path.exists() and not replace:
-            logger.warning(f"Column report already exists at:\n{report_path}\nSet replace=True to replace.")
+            logger.warning(
+                f"Column report already exists at:\n{report_path}\nSet replace=True to replace."
+            )
             return
-            
+
         col_profiles = self.load_col_profiles(path=profiles_path)
 
         self._save_col_report(
@@ -196,7 +210,9 @@ class ColReport:
 
     def create_col_profiles(self, df, path, replace):
         if path.exists() and not replace:
-            logger.warning(f"Column profiles exists at:\n{path}\nSet replace=True to replace.")
+            logger.warning(
+                f"Column profiles exists at:\n{path}\nSet replace=True to replace."
+            )
             return
 
         col_profiles: dict[str, ColProfile] = {}
@@ -208,7 +224,7 @@ class ColReport:
                 col_series=col_series,
             )
 
-            #col_profiles[col_name] = col_profile
+            # col_profiles[col_name] = col_profile
 
         # rows = [profile.to_dict() for profile in col_profiles.values()]
         # pd.DataFrame(rows).to_parquet(profiles_path)
@@ -216,22 +232,25 @@ class ColReport:
 
     def save_col_profiles(self, col_profiles, path):
         rows = [profile.to_dict() for profile in col_profiles.values()]
-        pd.DataFrame(rows).to_parquet(path)
+        profiles_df = frame_from_rows(
+            rows=rows,
+            schema=ColProfile.PARQUET_SCHEMA,
+        )
+        profiles_df.to_parquet(path=path, index=False)
 
     @staticmethod
-    def get_curated_col_profiles(col_profiles, col_edit_schema:ColEditSchema):
+    def get_curated_col_profiles(col_profiles, col_edit_schema: ColEditSchema):
         for col_name, col_edit in col_edit_schema.edits.items():
-            if col_edit.remove:
-                if col_name in col_profiles:
-                    del col_profiles[col_name]
-                    continue
-                    
+            if col_edit.remove and col_name in col_profiles:
+                del col_profiles[col_name]
+                continue
+
             if col_edit.change_col_name is not None:
                 col_profiles[col_name].col_name = col_edit.change_col_name
-        
+
             if col_edit.change_datatype is not None:
                 col_profiles[col_name].col_type = col_edit.change_datatype
-    
+
         return col_profiles
 
     @staticmethod
@@ -327,7 +346,7 @@ class ColReport:
                     profile = col_profiles[target_name]
 
                     row_data = {}
-                    for col_header in schema.keys():
+                    for col_header in schema:
                         if col_header == "col_name":
                             row_data[col_header] = profile.col_name
                         elif col_header == "inferred_datatype":

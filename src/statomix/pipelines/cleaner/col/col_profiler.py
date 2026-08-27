@@ -1,15 +1,16 @@
 import re
-import pandas as pd
 from dataclasses import dataclass
+from typing import ClassVar
+
+import pandas as pd
 
 from .col_semantic_rules import (
-    DataTypes,
     DATETIME_REGEX,
     IDENTIFIER_REGEX,
-    SEMANTIC_RULES,
     MULTI_TOKEN_RULES,
+    SEMANTIC_RULES,
+    DataTypes,
 )
-
 
 # @dataclass
 # class ColProfile:
@@ -21,8 +22,20 @@ from .col_semantic_rules import (
 #     tokens: list[str]
 #     normalized_name: str
 
+
 @dataclass
 class ColProfile:
+
+    PARQUET_SCHEMA: ClassVar[dict[str, str]] = {
+        "col_name": "object",
+        "col_type": "object",
+        "missing_n": "int64",
+        "missing_pct": "float64",
+        "unique_n": "Int64",
+        "tokens": "object",
+        "normalized_name": "object",
+        "num_conversion_pct": "float64",
+    }
 
     col_name: str
     col_type: DataTypes | None
@@ -36,41 +49,33 @@ class ColProfile:
     def to_dict(self) -> dict[str, object]:
         return {
             "col_name": self.col_name,
-            "col_type": (
-                self.col_type.value
-                if self.col_type is not None
-                else None
-            ),
+            "col_type": (self.col_type.value if self.col_type is not None else None),
             "missing_n": self.missing_n,
             "missing_pct": self.missing_pct,
             "unique_n": self.unique_n,
             "tokens": "|".join(self.tokens),
             "normalized_name": self.normalized_name,
-            "num_conversion_pct": self.num_conversion_pct
+            "num_conversion_pct": self.num_conversion_pct,
         }
 
     @classmethod
-    def from_dict(cls, row:pd.Series|dict):
+    def from_dict(cls, row: pd.Series | dict):
         return cls(
             col_name=row["col_name"],
             col_type=(
-                DataTypes(row["col_type"])
-                if pd.notna(row["col_type"])
-                else None
+                DataTypes(row["col_type"]) if pd.notna(row["col_type"]) else None
             ),
             missing_n=row["missing_n"],
             missing_pct=row["missing_pct"],
-            #unique_n=row["unique_n"],
-            unique_n=(
-                int(row["unique_n"])
-                if pd.notna(row["unique_n"])
-                else None
+            # unique_n=row["unique_n"],
+            unique_n=(int(row["unique_n"]) if pd.notna(row["unique_n"]) else None),
+            tokens=(
+                row["tokens"].split("|")
+                if pd.notna(row["tokens"]) and row["tokens"]
+                else []
             ),
-            tokens=row["tokens"].split("|")
-            if pd.notna(row["tokens"]) and row["tokens"]
-            else [],
             normalized_name=row["normalized_name"],
-            num_conversion_pct = row["num_conversion_pct"],
+            num_conversion_pct=row["num_conversion_pct"],
         )
 
 

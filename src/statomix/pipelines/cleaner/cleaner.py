@@ -1,18 +1,24 @@
 import shutil
+
 import pandas as pd
-from pathlib import Path
-from collections import defaultdict
+from fileverse.formats.yaml import BaseYAML
+from fileverse.formats.zarr import BaseZARR
+from fileverse.logger import Logger
 
 from statomix.pipelines.base import BasePipeline
 
-from fileverse.logger import Logger
-from fileverse.formats.zarr import BaseZARR
-from fileverse.formats.yaml import BaseYAML
-
+from .cat_meta_report import CatMetaEditSchema, CatMetaReport
+from .col.col_report import ColEditSchema, ColReport
 from .col.col_semantic_rules import DataTypes
-from .col.col_report import ColReport, ColEditSchema
-from .cat_meta_report import CatMetaReport, CatMetaEditSchema
-from .surv.surv_report import SurvMetaReport, SurvPairs, SurvCatMetaEditSchema
+from .col.datatype_inventory import DatatypeInventory
+from .curation import apply_curation_schemas
+from .surv.surv_profiler import SurvivalDataTypes
+from .surv.surv_report import (
+    SurvCatMetaEditSchema,
+    SurvEditSchema,
+    SurvMetaReport,
+    SurvPairs,
+)
 
 logger = Logger(name="cleaner").get_logger()
 
@@ -35,6 +41,43 @@ class Cleaner(BasePipeline):
 
     def _get_default_config_meta(self):
         return {}
+
+    def _get_curated_datatype_inventory(self, group_bundle):
+        col_profiles_path = (
+            group_bundle["version"]["path"] / "col_profiles_curated.parquet"
+        )
+        col_profiles = self.col_report.load_col_profiles(path=col_profiles_path)
+        inventory = DatatypeInventory.from_profiles(profiles=col_profiles)
+        return col_profiles, inventory
+
+    @staticmethod
+    def _record_procedure_status(
+        group_bundle,
+        procedure,
+        status,
+        reason,
+        input_count,
+        output_count,
+        inventory=None,
+    ):
+        config_info = group_bundle["config"]
+        config_group = config_info["group"]
+        config_meta = dict(config_group.attrs.get("meta", {}))
+
+        procedure_status = dict(config_meta.get("procedure_status", {}))
+        procedure_status[procedure] = {
+            "status": status,
+            "reason": reason,
+            "input_count": int(input_count),
+            "output_count": int(output_count),
+        }
+        config_meta["procedure_status"] = procedure_status
+
+        if inventory is not None:
+            config_meta["curated_datatype_counts"] = inventory.counts_by_name()
+
+        config_group.attrs["meta"] = config_meta
+        config_info["meta"] = config_meta
 
     def create_col_report(
         self,
@@ -177,15 +220,21 @@ class Cleaner(BasePipeline):
         base_path = group_bundle["config"]["path"]
         req_base_path = group_bundle["version"]["path"]
 
-        col_profiles_curated_path = req_base_path / "col_profiles_curated.parquet"
-        col_profiles_curated = self.col_report.load_col_profiles(
-            path=col_profiles_curated_path
+        col_profiles_curated, inventory = self._get_curated_datatype_inventory(
+            group_bundle=group_bundle
         )
+        categorical_count = inventory.count(datatype=DataTypes.CATEGORICAL)
 
-        if not any(
-            profile.col_type == DataTypes.CATEGORICAL
-            for profile in col_profiles_curated.values()
-        ):
+        if categorical_count == 0:
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="categorical_meta_report",
+                status="not_applicable",
+                reason="no_curated_categorical_columns",
+                input_count=0,
+                output_count=0,
+                inventory=inventory,
+            )
             logger.info(
                 "No categorical columns found. "
                 "Categorical metadata report is not applicable."
@@ -198,6 +247,15 @@ class Cleaner(BasePipeline):
         meta_report_path = base_path / "cat_meta_report.xlsx"
 
         if meta_report_path.exists():
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="categorical_meta_report",
+                status="completed",
+                reason="existing_report_reused",
+                input_count=categorical_count,
+                output_count=1,
+                inventory=inventory,
+            )
             version = version_meta["version"]
             config_version = config_meta["version"]
             logger.info(
@@ -221,6 +279,15 @@ class Cleaner(BasePipeline):
 
         config_meta["cat_meta_report_exists"] = True
         group_bundle["config"]["group"].attrs["meta"] = config_meta
+        self._record_procedure_status(
+            group_bundle=group_bundle,
+            procedure="categorical_meta_report",
+            status="completed",
+            reason="report_created",
+            input_count=categorical_count,
+            output_count=1,
+            inventory=inventory,
+        )
 
     def create_cat_meta_edit_schema(self, version=None, config_version=None):
         group_bundle = self._get_group_bundle(
@@ -236,37 +303,41 @@ class Cleaner(BasePipeline):
         base_path = group_bundle["config"]["path"]
 
         meta_edit_schema_path = base_path / "cat_meta_edit_schema.parquet"
+        _, inventory = self._get_curated_datatype_inventory(group_bundle=group_bundle)
+        categorical_count = inventory.count(datatype=DataTypes.CATEGORICAL)
 
-        if meta_edit_schema_path.exists():
-            version = version_meta["version"]
-            config_version = config_meta["version"]
-            logger.info(
-                f"Categorical metadata edit schema already exists for version: {version} and config_version:{config_version}"
-            )
-            return
-
-        # Handle datasets with no categorical columns.
-        version_base_path = group_bundle["version"]["path"]
-        col_profiles_curated_path = (
-            version_base_path / "col_profiles_curated.parquet"
-        )
-
-        col_profiles_curated = self.col_report.load_col_profiles(
-            path=col_profiles_curated_path
-        )
-
-        has_categorical_columns = any(
-            profile.col_type == DataTypes.CATEGORICAL
-            for profile in col_profiles_curated.values()
-        )
-
-        if not has_categorical_columns:
-            CatMetaEditSchema(cat_edits={}).save(
-                path=meta_edit_schema_path
+        if categorical_count == 0:
+            CatMetaEditSchema.empty().save(path=meta_edit_schema_path)
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="categorical_meta_edit_schema",
+                status="not_applicable",
+                reason="no_curated_categorical_columns",
+                input_count=0,
+                output_count=0,
+                inventory=inventory,
             )
             logger.info(
                 "No categorical columns found. "
                 "Created an empty categorical edit schema."
+            )
+            return
+
+        if meta_edit_schema_path.exists():
+            existing_schema = CatMetaEditSchema.load(path=meta_edit_schema_path)
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="categorical_meta_edit_schema",
+                status="completed",
+                reason="existing_schema_reused",
+                input_count=categorical_count,
+                output_count=existing_schema.edit_count,
+                inventory=inventory,
+            )
+            version = version_meta["version"]
+            config_version = config_meta["version"]
+            logger.info(
+                f"Categorical metadata edit schema already exists for version: {version} and config_version:{config_version}"
             )
             return
 
@@ -293,6 +364,15 @@ class Cleaner(BasePipeline):
             curated_meta_report
         )
         meta_edit_schema.save(path=meta_edit_schema_path)
+        self._record_procedure_status(
+            group_bundle=group_bundle,
+            procedure="categorical_meta_edit_schema",
+            status="completed",
+            reason="curated_schema_created",
+            input_count=categorical_count,
+            output_count=meta_edit_schema.edit_count,
+            inventory=inventory,
+        )
 
     def create_surv_meta_report(
         self, version=None, config_version=None, config_name=None, create_new=False
@@ -314,12 +394,43 @@ class Cleaner(BasePipeline):
         config_version = config_meta["version"]
 
         base_path = group_bundle["config"]["path"]
-        req_base_path = group_bundle["version"]["path"]
 
         surv_profiles_path = base_path / "surv_profiles.parquet"
         meta_report_path = base_path / "surv_meta_report.xlsx"
 
+        _, inventory = self._get_curated_datatype_inventory(group_bundle=group_bundle)
+        survival_count = inventory.count(datatype=DataTypes.SURVIVAL)
+
+        if survival_count == 0:
+            self.surv_meta_report.save_semantic_profiles(
+                semantic_profiles={},
+                path=surv_profiles_path,
+            )
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_meta_report",
+                status="not_applicable",
+                reason="no_curated_survival_columns",
+                input_count=0,
+                output_count=0,
+                inventory=inventory,
+            )
+            logger.info(
+                "No survival columns found. "
+                "Survival metadata report is not applicable."
+            )
+            return
+
         if surv_profiles_path.exists() and meta_report_path.exists():
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_meta_report",
+                status="completed",
+                reason="existing_report_reused",
+                input_count=survival_count,
+                output_count=1,
+                inventory=inventory,
+            )
             version = version_meta["version"]
             config_version = config_meta["version"]
             logger.info(
@@ -327,13 +438,7 @@ class Cleaner(BasePipeline):
             )
             return
 
-        col_profiles_path = req_base_path / "col_profiles_curated.parquet"
-        col_profiles = self.col_report.load_col_profiles(path=col_profiles_path)
-
-        datatype_map = defaultdict(list)
-        for profile in col_profiles.values():
-            datatype_map[profile.col_type].append(profile.col_name)
-        col_names = datatype_map[DataTypes.SURVIVAL]
+        col_names = inventory.columns(datatype=DataTypes.SURVIVAL)
 
         self.surv_meta_report.create_surv_report(
             col_names=col_names,
@@ -346,6 +451,15 @@ class Cleaner(BasePipeline):
             / f"{self.dataset_name.replace(" ", "_")}_surv_meta_report_version{version}_config{config_version}.xlsx"
         )
         shutil.copy2(src=meta_report_path, dst=user_config_path)
+        self._record_procedure_status(
+            group_bundle=group_bundle,
+            procedure="survival_meta_report",
+            status="completed",
+            reason="report_created",
+            input_count=survival_count,
+            output_count=1,
+            inventory=inventory,
+        )
 
     def create_surv_meta_edit_schema(self, version=None, config_version=None):
 
@@ -365,15 +479,54 @@ class Cleaner(BasePipeline):
         surv_profiles_path = base_path / "surv_profiles.parquet"
         surv_profiles_curated_path = base_path / "surv_profiles_curated.parquet"
 
-        meta_report_path = base_path / "surv_meta_report.xlsx"
         meta_edit_schema_path = base_path / "surv_meta_edit_schema.parquet"
         curated_meta_report_path = base_path / "surv_meta_report_curated.xlsx"
+
+        _, inventory = self._get_curated_datatype_inventory(group_bundle=group_bundle)
+        survival_count = inventory.count(datatype=DataTypes.SURVIVAL)
+
+        if survival_count == 0:
+            self.surv_meta_report.save_semantic_profiles(
+                semantic_profiles={},
+                path=surv_profiles_path,
+            )
+            SurvEditSchema.empty().save(path=meta_edit_schema_path)
+            self.surv_meta_report.save_semantic_profiles(
+                semantic_profiles={},
+                path=surv_profiles_curated_path,
+            )
+            SurvPairs.empty().save(path=surv_pairs_path)
+
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_meta_edit_schema",
+                status="not_applicable",
+                reason="no_curated_survival_columns",
+                input_count=0,
+                output_count=0,
+                inventory=inventory,
+            )
+            logger.info(
+                "No survival columns found. Created empty survival "
+                "profiles, edit schema, and pairs."
+            )
+            return
 
         if (
             surv_pairs_path.exists()
             and surv_profiles_curated_path.exists()
             and meta_edit_schema_path.exists()
         ):
+            existing_pairs = SurvPairs.load(path=surv_pairs_path)
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_meta_edit_schema",
+                status="completed",
+                reason="existing_schema_reused",
+                input_count=survival_count,
+                output_count=len(existing_pairs.pairs),
+                inventory=inventory,
+            )
             version = version_meta["version"]
             config_version = config_meta["version"]
             logger.info(
@@ -419,6 +572,15 @@ class Cleaner(BasePipeline):
             surv_meta_df=surv_meta_df, surv_profiles=surv_profiles_curated
         )
         surv_pairs.save(path=surv_pairs_path)
+        self._record_procedure_status(
+            group_bundle=group_bundle,
+            procedure="survival_meta_edit_schema",
+            status="completed",
+            reason="curated_schema_created",
+            input_count=survival_count,
+            output_count=len(surv_pairs.pairs),
+            inventory=inventory,
+        )
 
     def create_surv_cat_meta_report(
         self, version=None, config_version=None, config_name=None, create_new=False
@@ -450,12 +612,64 @@ class Cleaner(BasePipeline):
         profiles_path = base_path / "surv_profiles_curated.parquet"
         meta_report_path = base_path / "surv_cat_meta_report.xlsx"
 
+        _, inventory = self._get_curated_datatype_inventory(group_bundle=group_bundle)
+        survival_count = inventory.count(datatype=DataTypes.SURVIVAL)
+
+        if survival_count == 0:
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_categorical_meta_report",
+                status="not_applicable",
+                reason="no_curated_survival_columns",
+                input_count=0,
+                output_count=0,
+                inventory=inventory,
+            )
+            logger.info(
+                "No curated survival columns found. Survival "
+                "categorical metadata report is not applicable."
+            )
+            return
+
+        survival_profiles = self.surv_meta_report.load_semantic_profiles(
+            path=profiles_path
+        )
+        event_count = sum(
+            profile.col_type == SurvivalDataTypes.EVENT
+            for profile in survival_profiles.values()
+        )
+
+        if event_count == 0:
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_categorical_meta_report",
+                status="not_applicable",
+                reason="no_curated_survival_event_columns",
+                input_count=0,
+                output_count=0,
+                inventory=inventory,
+            )
+            logger.info(
+                "No curated survival event columns found. Survival "
+                "categorical metadata report is not applicable."
+            )
+            return
+
         rename_mapping_path = req_base_path / "rename_mapping.yaml"
         # col_profiles_path = req_base_path/"col_profiles_curated.parquet"
 
         rename_mapping = BaseYAML.load(path=rename_mapping_path)
 
         if meta_report_path.exists():
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_categorical_meta_report",
+                status="completed",
+                reason="existing_report_reused",
+                input_count=event_count,
+                output_count=1,
+                inventory=inventory,
+            )
             version = version_meta["version"]
             config_version = config_meta["version"]
             logger.info(
@@ -476,6 +690,15 @@ class Cleaner(BasePipeline):
             / f"{self.dataset_name.replace(" ", "_")}_surv_cat_meta_report_version{version}_config{config_version}.xlsx"
         )
         shutil.copy2(src=meta_report_path, dst=user_config_path)
+        self._record_procedure_status(
+            group_bundle=group_bundle,
+            procedure="survival_categorical_meta_report",
+            status="completed",
+            reason="report_created",
+            input_count=event_count,
+            output_count=1,
+            inventory=inventory,
+        )
 
     def create_surv_cat_meta_edit_schema(self, version=None, config_version=None):
         group_bundle = self._get_group_bundle(
@@ -495,7 +718,64 @@ class Cleaner(BasePipeline):
 
         curated_meta_report_path = base_path / "surv_cat_meta_report_curated.xlsx"
         meta_edit_schema_path = base_path / "surv_cat_meta_edit_schema.parquet"
+
+        profiles_path = base_path / "surv_profiles_curated.parquet"
+        _, inventory = self._get_curated_datatype_inventory(group_bundle=group_bundle)
+        survival_count = inventory.count(datatype=DataTypes.SURVIVAL)
+
+        if survival_count == 0:
+            SurvCatMetaEditSchema.empty().save(path=meta_edit_schema_path)
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_categorical_meta_edit_schema",
+                status="not_applicable",
+                reason="no_curated_survival_columns",
+                input_count=0,
+                output_count=0,
+                inventory=inventory,
+            )
+            logger.info(
+                "No curated survival columns found. Created an empty "
+                "survival categorical edit schema."
+            )
+            return
+
+        survival_profiles = self.surv_meta_report.load_semantic_profiles(
+            path=profiles_path
+        )
+        event_count = sum(
+            profile.col_type == SurvivalDataTypes.EVENT
+            for profile in survival_profiles.values()
+        )
+
+        if event_count == 0:
+            SurvCatMetaEditSchema.empty().save(path=meta_edit_schema_path)
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_categorical_meta_edit_schema",
+                status="not_applicable",
+                reason="no_curated_survival_event_columns",
+                input_count=0,
+                output_count=0,
+                inventory=inventory,
+            )
+            logger.info(
+                "No curated survival event columns found. Created an "
+                "empty survival categorical edit schema."
+            )
+            return
+
         if meta_edit_schema_path.exists():
+            existing_schema = SurvCatMetaEditSchema.load(path=meta_edit_schema_path)
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="survival_categorical_meta_edit_schema",
+                status="completed",
+                reason="existing_schema_reused",
+                input_count=event_count,
+                output_count=existing_schema.edit_count,
+                inventory=inventory,
+            )
             version = version_meta["version"]
             config_version = config_meta["version"]
             logger.info(
@@ -525,6 +805,15 @@ class Cleaner(BasePipeline):
             curated_meta_report=curated_meta_report
         )
         meta_edit_schema.save(path=meta_edit_schema_path)
+        self._record_procedure_status(
+            group_bundle=group_bundle,
+            procedure="survival_categorical_meta_edit_schema",
+            status="completed",
+            reason="curated_schema_created",
+            input_count=event_count,
+            output_count=meta_edit_schema.edit_count,
+            inventory=inventory,
+        )
 
     def create_curated_data(self, version=None, config_version=None):
 
@@ -550,11 +839,24 @@ class Cleaner(BasePipeline):
         curated_surv_pairs_path = curated_base_path / "surv_pairs.parquet"
         curated_col_profiles_path = curated_base_path / "col_profiles.parquet"
 
+        col_profiles_curated, inventory = self._get_curated_datatype_inventory(
+            group_bundle=group_bundle
+        )
+
         if (
             curated_df_path.exists()
             and curated_surv_pairs_path.exists()
             and curated_col_profiles_path.exists()
         ):
+            self._record_procedure_status(
+                group_bundle=group_bundle,
+                procedure="curated_data",
+                status="completed",
+                reason="existing_artifacts_reused",
+                input_count=len(col_profiles_curated),
+                output_count=3,
+                inventory=inventory,
+            )
             version = version_meta["version"]
             config_version = config_meta["version"]
             logger.info(
@@ -570,75 +872,44 @@ class Cleaner(BasePipeline):
         rename_mapping_path = req_base_path / "rename_mapping.yaml"
         col_edit_schema_path = req_base_path / "col_edit_schema.parquet"
         cat_meta_edit_schema_path = base_path / "cat_meta_edit_schema.parquet"
-        col_profiles_curated_path = req_base_path / "col_profiles_curated.parquet"
+        req_base_path / "col_profiles_curated.parquet"
         surv_cat_meta_edit_schema_path = base_path / "surv_cat_meta_edit_schema.parquet"
 
         rename_mapping = BaseYAML.load(path=rename_mapping_path)
-        rename_mapping_swapped = {v: k for k, v in rename_mapping.items()}
 
         col_edit_schema = ColEditSchema.load(path=col_edit_schema_path)
 
-        remove_cols = []
-        for col_name, col_edit in col_edit_schema.edits.items():
-            if col_edit.remove:
-                remove_cols.append(col_name)
-
         cat_meta_edit_schema = CatMetaEditSchema.load(cat_meta_edit_schema_path)
-
-        cat_meta_edits = cat_meta_edit_schema.cat_edits
-
-        cat_rename_mapping = defaultdict(dict)
-        for col_name, cat_edit in cat_meta_edits.items():
-            for category, schema in cat_edit.items():
-                if schema.category is not None and schema.rename_to is not None:
-                    cat_rename_mapping[col_name][schema.category] = schema.rename_to
-                elif schema.remove:
-                    cat_rename_mapping[col_name][schema.category] = pd.NA
-                else:
-                    error_msg = f"Column {col_name} has neither a rename mapping nor needs to be removed, still present in schema."
-                    raise ValueError(error_msg)
 
         surv_cat_meta_edit_schema = SurvCatMetaEditSchema.load(
             path=surv_cat_meta_edit_schema_path
         )
 
-        surv_cat_meta_edits = surv_cat_meta_edit_schema.cat_edits
-
-        surv_cat_rename_mapping = defaultdict(dict)
-        for col_name, surv_cat_edit in surv_cat_meta_edits.items():
-            for category, schema in surv_cat_edit.items():
-                if schema.category is not None and schema.rename_to is not None:
-                    surv_cat_rename_mapping[col_name][
-                        schema.category
-                    ] = schema.rename_to
-                elif schema.remove:
-                    surv_cat_rename_mapping[col_name][schema.category] = pd.NA
-                else:
-                    error_msg = f"Column {col_name} has neither a rename mapping nor needs to be removed, still present in schema."
-                    raise ValueError(error_msg)
-
         surv_pairs = SurvPairs.load(path=surv_pairs_path)
 
-        col_profiles_curated = self.col_report.load_col_profiles(
-            path=col_profiles_curated_path
-        )
-
-        # Apply all the changes
         df = pd.read_parquet(path=self.df_path)
-
-        df = df.drop(columns=remove_cols)
-        df = df.rename(columns=rename_mapping_swapped)
-
-        for col_name, cat_rename_map in cat_rename_mapping.items():
-            df[col_name] = df[col_name].replace(cat_rename_map)
-
-        for col_name, surv_cat_remame_map in surv_cat_rename_mapping.items():
-            df[col_name] = df[col_name].replace(surv_cat_remame_map)
+        df = apply_curation_schemas(
+            df=df,
+            rename_mapping=rename_mapping,
+            col_edit_schema=col_edit_schema,
+            cat_meta_edit_schema=cat_meta_edit_schema,
+            surv_cat_meta_edit_schema=surv_cat_meta_edit_schema,
+        )
 
         df.to_parquet(path=curated_df_path)
         surv_pairs.save(path=curated_surv_pairs_path)
         self.col_report.save_col_profiles(
             col_profiles=col_profiles_curated, path=curated_col_profiles_path
+        )
+
+        self._record_procedure_status(
+            group_bundle=group_bundle,
+            procedure="curated_data",
+            status="completed",
+            reason="artifacts_created",
+            input_count=len(col_profiles_curated),
+            output_count=3,
+            inventory=inventory,
         )
 
         # curated_data_meta["curated_data_exists"] = True
@@ -649,53 +920,45 @@ class Cleaner(BasePipeline):
         version=None,
         config_version=None,
     ):
-    
+
         group_bundle = self._get_group_bundle(
             version=version,
             config_version=config_version,
         )
-    
+
         version = group_bundle["version"]["meta"]["version"]
         config_version = group_bundle["config"]["meta"]["version"]
         config_group = group_bundle["config"]["group"]
-    
+
         curated_data_group = config_group.get("curated_data")
-    
+
         if curated_data_group is None:
             logger.info(
                 f"Curated group does not exist for version:{version} "
                 f"and config_version:{config_version}."
             )
             return None
-    
-        curated_base_path = BaseZARR.get_abs_path(
-            curated_data_group
-        )
-    
+
+        curated_base_path = BaseZARR.get_abs_path(curated_data_group)
+
         required_paths = (
             curated_base_path / "df.parquet",
             curated_base_path / "surv_pairs.parquet",
             curated_base_path / "col_profiles.parquet",
         )
-    
-        missing_paths = [
-            path
-            for path in required_paths
-            if not path.exists()
-        ]
-    
+
+        missing_paths = [path for path in required_paths if not path.exists()]
+
         if missing_paths:
-            missing_names = ", ".join(
-                path.name for path in missing_paths
-            )
-    
+            missing_names = ", ".join(path.name for path in missing_paths)
+
             logger.info(
                 f"Curated data is incomplete for version:{version} "
                 f"and config_version:{config_version}. "
                 f"Missing: {missing_names}."
             )
             return None
-    
+
         return curated_data_group
 
     # def get_curated_data_group(self, version=None, config_version=None):
@@ -706,10 +969,10 @@ class Cleaner(BasePipeline):
 
     #     version_meta = group_bundle["version"]["meta"]
     #     version = version_meta["version"]
-    
+
     #     config_meta = group_bundle["config"]["meta"]
     #     config_version = config_meta["version"]
-    
+
     #     config_group = group_bundle["config"]["group"]
 
     #     curated_data_group = config_group.get("curated_data")
@@ -744,5 +1007,5 @@ class Cleaner(BasePipeline):
     #             f"Curated group does not exist for version:{version} and config_version:{config_version}"
     #         )
     #         return None
-        
+
     #     return curated_data_group
