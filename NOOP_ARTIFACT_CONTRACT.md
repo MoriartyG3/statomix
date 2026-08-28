@@ -1,7 +1,8 @@
 # Statomix no-op artifact contract
 
-This source bundle is based on `MoriartyG3/statomix` `main` at commit
-`7d2223fed02197c2c51b79d7558ccf84931b237a`.
+The no-op foundation was introduced on `feat/noop-cleaner-contract`; this
+refactor starts from commit
+`4b3843fb6a4e1436b7199e9afc2eb2d99bb70611` and preserves that contract.
 
 ## Invariant
 

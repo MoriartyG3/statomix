@@ -216,7 +216,7 @@ def test_survival_summary_accepts_zero_pairs(tmp_path, monkeypatch):
     }
 
     analyzer = Analyzer.__new__(Analyzer)
-    analyzer._get_group_bundle = lambda **kwargs: group_bundle
+    analyzer._find_group_bundle = lambda **kwargs: group_bundle
     analyzer._get_group_analyzer = lambda **kwargs: group_analyzer
 
     monkeypatch.setattr(
