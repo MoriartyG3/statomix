@@ -14,6 +14,10 @@ class ContractError(StatomixError, ValueError):
     """Raised when an object violates a cross-module contract."""
 
 
+class CuratedStateInheritanceError(ContractError):
+    """Raised when a derived dataset cannot inherit a curated parent state."""
+
+
 class ArtifactNotFoundError(StatomixError, FileNotFoundError):
     """Raised when a required persisted artifact is absent."""
 

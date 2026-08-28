@@ -143,3 +143,78 @@ class AnalyzerInputPaths:
         if stringify:
             return {key: str(value) for key, value in values.items()}
         return values
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CuratedStateLineage:
+    """Immutable provenance for a dataset derived from curated parent data."""
+
+    source_project: str
+    source_dataset: str
+    source_version: int
+    source_config_version: int
+    target_dataset: str
+    target_version: int
+    target_config_version: int
+    column_mapping: Mapping[str, str]
+    changed_columns: tuple[str, ...]
+    row_key: str | None
+    strict: bool
+    applied_parent_category_edits: bool
+    source_artifact_sha256: Mapping[str, str]
+    target_source_df_sha256: str
+
+    def __post_init__(self) -> None:
+        for field_name in ("source_project", "source_dataset", "target_dataset"):
+            if not str(getattr(self, field_name)).strip():
+                raise ValueError(f"{field_name} must not be empty")
+
+        for field_name in (
+            "source_version",
+            "source_config_version",
+            "target_version",
+            "target_config_version",
+        ):
+            if int(getattr(self, field_name)) < 1:
+                raise ValueError(f"{field_name} must be at least 1")
+
+        mapping = dict(self.column_mapping)
+        if len(set(mapping.values())) != len(mapping):
+            raise ValueError("column_mapping target names must be unique")
+        if not isinstance(self.strict, bool):
+            raise ValueError("strict must be a boolean value")
+        if not isinstance(self.applied_parent_category_edits, bool):
+            raise ValueError("applied_parent_category_edits must be a boolean value")
+
+        object.__setattr__(self, "column_mapping", MappingProxyType(mapping))
+        object.__setattr__(self, "changed_columns", tuple(self.changed_columns))
+        object.__setattr__(
+            self,
+            "source_artifact_sha256",
+            MappingProxyType(dict(self.source_artifact_sha256)),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a Zarr-attribute-compatible representation."""
+
+        return {
+            "kind": "curated_state_inheritance",
+            "source": {
+                "project": self.source_project,
+                "dataset": self.source_dataset,
+                "version": self.source_version,
+                "config_version": self.source_config_version,
+                "artifact_sha256": dict(self.source_artifact_sha256),
+            },
+            "target": {
+                "dataset": self.target_dataset,
+                "version": self.target_version,
+                "config_version": self.target_config_version,
+                "source_df_sha256": self.target_source_df_sha256,
+            },
+            "column_mapping": dict(self.column_mapping),
+            "changed_columns": list(self.changed_columns),
+            "row_key": self.row_key,
+            "strict": self.strict,
+            "applied_parent_category_edits": (self.applied_parent_category_edits),
+        }

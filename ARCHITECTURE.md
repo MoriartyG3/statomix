@@ -45,6 +45,13 @@ create missing groups.  Write workflows retain explicit `require_group`
 semantics.  File artifacts that can be rendered off-store use a sibling
 temporary file followed by an atomic same-filesystem replacement.
 
+Curated-state inheritance is a distinct workflow boundary. It consumes an
+immutable parent `curated_data` contract and writes independent target
+artifacts. Pure schema/row validation and profile reconstruction live in
+`statomix.curation.inheritance`; filesystem and Zarr orchestration live in
+`statomix.workflows.cleaner_inheritance`. Existing Cleaner methods are not
+special-cased and their default behavior is unchanged.
+
 ## Extension points
 
 New statistical operations belong in `statomix.analysis` and can implement the

@@ -255,10 +255,27 @@ class SurvMetaReport:
         self.create_semantic_profiles(col_names=col_names, path=profiles_path)
         semantic_profiles = self.load_semantic_profiles(path=profiles_path)
 
+        self.create_surv_report_from_profiles(
+            col_names=col_names,
+            semantic_profiles=semantic_profiles,
+            report_path=report_path,
+        )
+
+    def create_surv_report_from_profiles(
+        self,
+        *,
+        col_names,
+        semantic_profiles,
+        report_path,
+        survival_labels=None,
+    ):
+        """Render a report from already-resolved survival semantics."""
+
         self.save_col_report(
             path=report_path,
             col_names=col_names,
             semantic_profiles=semantic_profiles,
+            survival_labels=survival_labels,
         )
 
         BaseExcel.format_cell_length(path=report_path)
@@ -319,7 +336,13 @@ class SurvMetaReport:
         return validation_df
 
     @staticmethod
-    def save_col_report(path, col_names, semantic_profiles):
+    def save_col_report(
+        path,
+        col_names,
+        semantic_profiles,
+        survival_labels=None,
+    ):
+        survival_labels = survival_labels or {}
         rows = []
         for col_name in col_names:
             rows.append(
@@ -327,7 +350,7 @@ class SurvMetaReport:
                     "col_name": col_name,
                     "inferred_datatype": semantic_profiles[col_name].col_type.value,
                     "change_datatype": pd.NA,
-                    "survival_label": pd.NA,
+                    "survival_label": survival_labels.get(col_name, pd.NA),
                     "remove": pd.NA,
                 }
             )

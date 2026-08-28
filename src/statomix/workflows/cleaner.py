@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,67 @@ class Cleaner(BasePipeline):
         self.col_report = ColReport()
         self.cat_meta_report = CatMetaReport()
         self.surv_meta_report = SurvMetaReport()
+
+    def inherit_curated_state(
+        self,
+        *,
+        source_cleaner: Cleaner,
+        source_version: int,
+        source_config_version: int,
+        target_version: int | None = None,
+        target_config_version: int | None = None,
+        column_mapping: Mapping[str, str] | None = None,
+        changed_columns: Collection[str],
+        row_key: str | None = None,
+        strict: bool = True,
+        apply_parent_category_edits: bool = True,
+        replace: bool = False,
+    ) -> dict[str, Any]:
+        """Inherit semantic decisions from an already-curated parent dataset.
+
+        The target source dataframe is treated as post-curation data. Existing
+        rename, removal, and category transformations are therefore represented
+        by identity schemas instead of being applied a second time. Column and
+        survival profiles are rebuilt from the target values while curated
+        datatypes and endpoint labels are inherited from the parent.
+
+        ``column_mapping`` maps parent curated column names to target names.
+        ``changed_columns`` uses target names and makes every intentional value
+        change explicit. In strict mode, every undeclared target column must be
+        identical to its parent counterpart. Parent category recoding is
+        applied only to changed columns unless explicitly disabled.
+        """
+
+        from statomix.workflows.cleaner_inheritance import (
+            inherit_curated_state,
+        )
+
+        result = inherit_curated_state(
+            target_cleaner=self,
+            source_cleaner=source_cleaner,
+            source_version=source_version,
+            source_config_version=source_config_version,
+            target_version=target_version,
+            target_config_version=target_config_version,
+            column_mapping=column_mapping,
+            changed_columns=changed_columns,
+            row_key=row_key,
+            strict=strict,
+            apply_parent_category_edits=apply_parent_category_edits,
+            replace=replace,
+        )
+        logger.info(
+            "Inherited curated state from dataset '%s' version:%s "
+            "config_version:%s into dataset '%s' version:%s "
+            "config_version:%s.",
+            source_cleaner.dataset_name,
+            source_version,
+            source_config_version,
+            self.dataset_name,
+            result["version"],
+            result["config_version"],
+        )
+        return result
 
     def _get_default_version_meta(self) -> dict[str, Any]:
         return {}

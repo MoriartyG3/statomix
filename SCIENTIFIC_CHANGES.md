@@ -44,6 +44,13 @@ incidental formatting changes.
 
 ## Workflow behavior
 
+- `Cleaner.inherit_curated_state()` is a new opt-in path for data derived from
+  a completed parent Cleaner group. It preserves curated datatypes and
+  survival labels, recomputes target-dependent profiles, and applies parent
+  category recoding only to explicitly changed columns. It requires inherited
+  event values to be binary `0`/`1`, durations to be finite and non-negative,
+  and each inherited endpoint to contain at least one complete row. Existing
+  Cleaner calls are unchanged.
 - Requested analysis-configuration versions are honored or rejected with a
   precise version-selection error; they are no longer silently ignored.
 - Project configuration generation passes the requested dataset version and

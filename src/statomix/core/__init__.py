@@ -3,6 +3,7 @@
 from .contracts import (
     AnalyzerInputPaths,
     ConfigRef,
+    CuratedStateLineage,
     GroupBundle,
     GroupInfo,
     ProcedureState,
@@ -13,6 +14,7 @@ from .errors import (
     AnalysisError,
     ArtifactNotFoundError,
     ContractError,
+    CuratedStateInheritanceError,
     StatomixError,
     VersionSelectionError,
 )
@@ -28,6 +30,8 @@ __all__ = [
     "ArtifactNotFoundError",
     "ConfigRef",
     "ContractError",
+    "CuratedStateInheritanceError",
+    "CuratedStateLineage",
     "GroupBundle",
     "GroupInfo",
     "ProcedureState",

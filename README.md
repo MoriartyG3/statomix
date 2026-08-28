@@ -16,6 +16,24 @@ dataset.cleaner.create_col_report()
 dataset.cleaner.create_col_edit_schema()
 ```
 
+Datasets derived from an existing Cleaner's curated dataframe can inherit its
+semantic state without applying rename/removal/category transformations twice:
+
+```python
+derived.cleaner.inherit_curated_state(
+    source_cleaner=parent.cleaner,
+    source_version=1,
+    source_config_version=1,
+    column_mapping={"OS Months": "OS_months"},
+    changed_columns=["OS Event", "OS_months"],
+    row_key="Patient ID",
+    strict=True,
+)
+```
+
+See [CURATED_STATE_INHERITANCE.md](CURATED_STATE_INHERITANCE.md) for the
+validation, overwrite, lineage, and analyzer-regeneration contracts.
+
 ## Package layout
 
 - `statomix.core`: immutable contracts, errors, registries, and version
