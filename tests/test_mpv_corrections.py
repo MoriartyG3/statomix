@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from unittest.mock import patch
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -131,6 +132,7 @@ def test_correction_specific_and_combined_plots() -> None:
     combined_labels = {line.get_label() for line in combined_figure.axes[0].get_lines()}
 
     assert "Cox PH p-value" in raw_labels
+    assert raw_figure.axes[0].get_lines()[0].get_markersize() == 2.5
     assert "Cox PH (fdr_bh-adjusted)" in adjusted_labels
     assert {"Raw (none)", "bonferroni", "fdr_bh"} <= combined_labels
     assert len(combined_figure.axes) == 2
@@ -138,6 +140,30 @@ def test_correction_specific_and_combined_plots() -> None:
     plt.close(raw_figure)
     plt.close(adjusted_figure)
     plt.close(combined_figure)
+
+
+def test_dashboard_always_delegates_to_raw_view() -> None:
+    mpv = _mpv_for_plotting()
+
+    with (
+        patch.object(MinimumPValue, "plot_p_values") as plot_p_values,
+        patch.object(MinimumPValue, "plot_hr_with_ci") as plot_hr_with_ci,
+        patch.object(MinimumPValue, "plot_group_sizes") as plot_group_sizes,
+        patch.object(MinimumPValue, "plot_split_ratio") as plot_split_ratio,
+        patch.object(MinimumPValue, "plot_median_survival") as plot_median_survival,
+    ):
+        figure = mpv.plot_dashboard(correction="fdr_bh")
+
+    for mocked_method in (
+        plot_p_values,
+        plot_hr_with_ci,
+        plot_group_sizes,
+        plot_split_ratio,
+        plot_median_survival,
+    ):
+        assert mocked_method.call_args.kwargs["correction"] == "none"
+
+    plt.close(figure)
 
 
 def test_missing_requested_correction_requires_regeneration() -> None:

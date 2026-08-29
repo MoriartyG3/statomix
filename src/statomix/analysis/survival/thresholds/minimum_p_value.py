@@ -23,6 +23,9 @@ from statomix.logging import get_logger
 
 logger = get_logger(name="MinimumPValue")
 
+_LINE_MARKER_SIZE = 2.5
+_SCATTER_POINT_SIZE = 16
+
 
 class MinimumPValue:
     """Scan numerical cutoffs while retaining invalid and failed splits.
@@ -708,6 +711,7 @@ class MinimumPValue:
             color="tab:purple",
             lw=1.4,
             marker=".",
+            markersize=_LINE_MARKER_SIZE,
             label="Cox HR",
         )
         ax.fill_between(
@@ -808,6 +812,7 @@ class MinimumPValue:
                 color=raw_color,
                 lw=1.2,
                 marker=".",
+                markersize=_LINE_MARKER_SIZE,
                 alpha=0.7 if correction != "none" else 1.0,
                 label=raw_label,
             )
@@ -916,6 +921,9 @@ class MinimumPValue:
                         color=colors(index % 10),
                         lw=1.5,
                         marker="." if correction == "none" else None,
+                        markersize=(
+                            _LINE_MARKER_SIZE if correction == "none" else None
+                        ),
                         ls="-" if correction == "none" else "--",
                         label=label,
                     )
@@ -988,7 +996,14 @@ class MinimumPValue:
             / self.mpv_df["cox_ph.hr.raw.ci_lower"]
         )
 
-        ax.plot(x, ci_ratio, color="tab:brown", lw=1.2, marker=".")
+        ax.plot(
+            x,
+            ci_ratio,
+            color="tab:brown",
+            lw=1.2,
+            marker=".",
+            markersize=_LINE_MARKER_SIZE,
+        )
 
         self._add_threshold_markers(ax, correction=correction)
 
@@ -1088,6 +1103,7 @@ class MinimumPValue:
             color="tab:blue",
             lw=1.4,
             marker=".",
+            markersize=_LINE_MARKER_SIZE,
             label="Group 0 median survival",
         )
         ax.fill_between(x, g0_lo, g0_hi_plot, color="tab:blue", alpha=0.12)
@@ -1098,6 +1114,7 @@ class MinimumPValue:
             color="tab:orange",
             lw=1.4,
             marker=".",
+            markersize=_LINE_MARKER_SIZE,
             label="Group 1 median survival",
         )
         ax.fill_between(x, g1_lo, g1_hi_plot, color="tab:orange", alpha=0.12)
@@ -1157,6 +1174,7 @@ class MinimumPValue:
             color="tab:blue",
             lw=1.2,
             marker=".",
+            markersize=_LINE_MARKER_SIZE,
             label="Group 0 median follow-up",
         )
         ax.fill_between(
@@ -1173,6 +1191,7 @@ class MinimumPValue:
             color="tab:orange",
             lw=1.2,
             marker=".",
+            markersize=_LINE_MARKER_SIZE,
             label="Group 1 median follow-up",
         )
         ax.fill_between(
@@ -1232,6 +1251,7 @@ class MinimumPValue:
             color="tab:blue",
             lw=1.4,
             marker=".",
+            markersize=_LINE_MARKER_SIZE,
             label="Group 0 n",
         )
         ax.plot(
@@ -1240,6 +1260,7 @@ class MinimumPValue:
             color="tab:orange",
             lw=1.4,
             marker=".",
+            markersize=_LINE_MARKER_SIZE,
             label="Group 1 n",
         )
 
@@ -1320,7 +1341,14 @@ class MinimumPValue:
             label=f"Imbalanced (>{imbalance_factor:g}:1)",
         )
 
-        ax.plot(x, ratio, color="tab:green", lw=1.2, marker=".")
+        ax.plot(
+            x,
+            ratio,
+            color="tab:green",
+            lw=1.2,
+            marker=".",
+            markersize=_LINE_MARKER_SIZE,
+        )
         ax.axhline(1.0, color="black", lw=0.8, alpha=0.4, label="Balanced (1:1)")
 
         self._add_threshold_markers(ax, correction=correction)
@@ -1390,7 +1418,7 @@ class MinimumPValue:
             np.clip(self.mpv_df[p_value_column], 1e-300, None),
             c=color_vals,
             cmap="viridis",
-            s=28,
+            s=_SCATTER_POINT_SIZE,
             edgecolor="none",
             zorder=2,
         )
@@ -1461,7 +1489,10 @@ class MinimumPValue:
           5. Median survival per group with CI bands ("not reached" capped)
         """
         self._require_mpv_df()
-        correction = self._resolve_correction(correction)
+        # The dashboard is intentionally a raw overview. Corrected views are
+        # kept in the dedicated correction-specific and comparison figures.
+        self._resolve_correction(correction)
+        correction = "none"
 
         fig, axes = plt.subplots(
             5,
