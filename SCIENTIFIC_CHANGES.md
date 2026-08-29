@@ -37,6 +37,12 @@ incidental formatting changes.
   p-values are added by default across the successful threshold family and
   drive significance-dependent markers.  `multiplicity_method="none"`
   restores exploratory raw-p-value selection.
+- New MPV artifacts record the finite p-value count separately for each
+  correction family in `cox_ph.multiplicity.n_tests` and
+  `log_rank.multiplicity.n_tests`. The former shared
+  `multiplicity.n_tests` field was ambiguous when the two families had
+  different counts. Existing completed MPV artifacts are not rewritten during
+  ordinary loading and retain their legacy schema until explicitly regenerated.
 - Plot x-axes and reference markers use the actual threshold values rather
   than dataframe row positions.
 - Existing MPV metadata is retained and augmented with lifecycle status rather

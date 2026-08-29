@@ -39,6 +39,55 @@ def test_holm_adjustment_is_monotone_in_sorted_p_values() -> None:
     assert np.isnan(with_missing[1])
 
 
+def test_mpv_multiplicity_metadata_uses_separate_finite_family_counts() -> None:
+    from statomix.analysis.survival.thresholds.minimum_p_value import (
+        MinimumPValue,
+    )
+
+    mpv_df = pd.DataFrame(
+        {
+            "cox_ph.p_value": [0.01, np.nan, np.inf, 0.04],
+            "log_rank.p_value": [0.01, 0.04, 0.03, np.nan],
+        }
+    )
+    expected_cox = holm_adjust_with_missing(mpv_df["cox_ph.p_value"])
+    expected_log_rank = holm_adjust_with_missing(mpv_df["log_rank.p_value"])
+
+    mpv = MinimumPValue.__new__(MinimumPValue)
+    mpv.multiplicity_method = "holm"
+    mpv._add_multiplicity_columns(mpv_df=mpv_df)
+
+    assert mpv_df["cox_ph.multiplicity.n_tests"].eq(2).all()
+    assert mpv_df["log_rank.multiplicity.n_tests"].eq(3).all()
+    assert "multiplicity.n_tests" not in mpv_df.columns
+    assert mpv_df["multiplicity.method"].eq("holm").all()
+    np.testing.assert_allclose(
+        mpv_df["cox_ph.p_value_holm"], expected_cox, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        mpv_df["log_rank.p_value_holm"], expected_log_rank, equal_nan=True
+    )
+
+
+def test_mpv_multiplicity_metadata_has_stable_empty_schema() -> None:
+    from statomix.analysis.survival.thresholds.minimum_p_value import (
+        MinimumPValue,
+    )
+
+    mpv_df = pd.DataFrame()
+    mpv = MinimumPValue.__new__(MinimumPValue)
+    mpv.multiplicity_method = "holm"
+    mpv._add_multiplicity_columns(mpv_df=mpv_df)
+
+    assert {
+        "cox_ph.multiplicity.n_tests",
+        "log_rank.multiplicity.n_tests",
+        "multiplicity.method",
+    } <= set(mpv_df.columns)
+    assert mpv_df["cox_ph.multiplicity.n_tests"].empty
+    assert mpv_df["log_rank.multiplicity.n_tests"].empty
+
+
 def test_survival_data_is_validated_once_with_a_drop_audit() -> None:
     prepared = prepare_survival_data(
         frame=pd.DataFrame(

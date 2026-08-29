@@ -390,21 +390,7 @@ class MinimumPValue:
         else:
             mpv_df = mpv_df.sort_values(by="threshold").reset_index(drop=True)
 
-        p_value_columns = ("cox_ph.p_value", "log_rank.p_value")
-        valid_test_count = 0
-        for p_value_column in p_value_columns:
-            if p_value_column not in mpv_df.columns:
-                continue
-            values = pd.to_numeric(mpv_df[p_value_column], errors="coerce")
-            valid_test_count = max(valid_test_count, int(values.notna().sum()))
-            if self.multiplicity_method == "holm":
-                adjusted = holm_adjust_with_missing(values.to_numpy())
-            else:
-                adjusted = values.to_numpy(dtype=float)
-            mpv_df[f"{p_value_column}_{self.multiplicity_method}"] = adjusted
-
-        mpv_df["multiplicity.method"] = self.multiplicity_method
-        mpv_df["multiplicity.n_tests"] = valid_test_count
+        self._add_multiplicity_columns(mpv_df=mpv_df)
         mpv_df.to_parquet(self.paths["mpv_df"], index=False)
         mpv_df.to_csv(self.paths["mpv_df"].with_suffix(suffix=".csv"), index=False)
 
@@ -412,6 +398,41 @@ class MinimumPValue:
         self.marked_threshold_dicts = self._build_marked_threshold_dicts()
 
         return self.mpv_df
+
+    def _add_multiplicity_columns(self, *, mpv_df: pd.DataFrame) -> None:
+        """Add separate multiplicity results and family sizes to ``mpv_df``.
+
+        Cox-PH and log-rank p-values are separate correction families. Their
+        reported family sizes must therefore be computed independently using
+        the same finite-value rule as ``holm_adjust_with_missing``.
+
+        This method deliberately does not rewrite historical artifacts. New
+        MPV artifacts contain the per-family fields; existing artifacts loaded
+        with ``replace=False`` retain their original schema.
+        """
+
+        p_value_families = (
+            ("cox_ph.p_value", "cox_ph.multiplicity.n_tests"),
+            ("log_rank.p_value", "log_rank.multiplicity.n_tests"),
+        )
+
+        for p_value_column, count_column in p_value_families:
+            if p_value_column not in mpv_df.columns:
+                mpv_df[count_column] = 0
+                continue
+
+            values = pd.to_numeric(mpv_df[p_value_column], errors="coerce")
+            raw_values = values.to_numpy(dtype=float, na_value=np.nan)
+            finite = np.isfinite(raw_values)
+            mpv_df[count_column] = int(finite.sum())
+
+            if self.multiplicity_method == "holm":
+                adjusted = holm_adjust_with_missing(raw_values)
+            else:
+                adjusted = raw_values
+            mpv_df[f"{p_value_column}_{self.multiplicity_method}"] = adjusted
+
+        mpv_df["multiplicity.method"] = self.multiplicity_method
 
     def _save_marked_thresholds_data(self, replace):
 
