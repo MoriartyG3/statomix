@@ -34,6 +34,10 @@ derived.cleaner.inherit_curated_state(
 See [CURATED_STATE_INHERITANCE.md](CURATED_STATE_INHERITANCE.md) for the
 validation, overwrite, lineage, and analyzer-regeneration contracts.
 
+Minimum-p-value scans use raw p-values by default and can calculate several
+corrections in one run. See [MPV_CORRECTIONS.md](MPV_CORRECTIONS.md) for the
+configuration, generated plots, and statistical interpretation.
+
 ## Package layout
 
 - `statomix.core`: immutable contracts, errors, registries, and version

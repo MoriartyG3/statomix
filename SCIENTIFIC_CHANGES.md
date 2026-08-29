@@ -33,10 +33,16 @@ incidental formatting changes.
 - Every candidate split receives a row with `valid_split`, `invalid_reason`,
   and structured error fields; failed candidates are no longer silently
   discarded.
-- Raw Cox and log-rank p-values remain in the output.  Holm step-down adjusted
-  p-values are added by default across the successful threshold family and
-  drive significance-dependent markers.  `multiplicity_method="none"`
-  restores exploratory raw-p-value selection.
+- Raw Cox and log-rank p-values remain in the output and are now the default;
+  no multiplicity correction is silently applied. Optional Bonferroni, Holm,
+  Holm-Sidak, Hochberg, Benjamini-Hochberg, and Benjamini-Yekutieli values can
+  be requested together through `correction_methods`. Each method is applied
+  independently to the finite Cox-PH family and the finite log-rank family.
+- `selection_method` explicitly chooses which raw or corrected family drives
+  significance-dependent threshold markers. Every configured method also
+  receives its own p-value plot, and a combined two-panel figure compares all
+  configured methods. The former `multiplicity_method` argument remains as a
+  deprecated single-method compatibility alias.
 - New MPV artifacts record the finite p-value count separately for each
   correction family in `cox_ph.multiplicity.n_tests` and
   `log_rank.multiplicity.n_tests`. The former shared

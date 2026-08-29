@@ -59,3 +59,9 @@ small `Analysis` protocol.  They can be registered through `AnalysisRegistry`
 without changing workflow orchestration.  New storage or reporting formats
 should be adapters that consume domain results instead of being embedded in
 the statistical classes.
+
+Minimum-p-value corrections follow the same pattern: correction definitions
+and backend mappings live in `statomix.analysis.multiplicity`, while the MPV
+class consumes the registry for calculation, selection markers, and plotting.
+Adding a correction does not require another conditional branch in every MPV
+plot.

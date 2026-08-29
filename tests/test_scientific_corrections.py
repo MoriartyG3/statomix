@@ -54,13 +54,16 @@ def test_mpv_multiplicity_metadata_uses_separate_finite_family_counts() -> None:
     expected_log_rank = holm_adjust_with_missing(mpv_df["log_rank.p_value"])
 
     mpv = MinimumPValue.__new__(MinimumPValue)
+    mpv.correction_methods = ("none", "holm")
+    mpv.selection_method = "holm"
     mpv.multiplicity_method = "holm"
     mpv._add_multiplicity_columns(mpv_df=mpv_df)
 
     assert mpv_df["cox_ph.multiplicity.n_tests"].eq(2).all()
     assert mpv_df["log_rank.multiplicity.n_tests"].eq(3).all()
     assert "multiplicity.n_tests" not in mpv_df.columns
-    assert mpv_df["multiplicity.method"].eq("holm").all()
+    assert mpv_df["multiplicity.methods"].eq("none|holm").all()
+    assert mpv_df["multiplicity.selection_method"].eq("holm").all()
     np.testing.assert_allclose(
         mpv_df["cox_ph.p_value_holm"], expected_cox, equal_nan=True
     )
@@ -76,13 +79,16 @@ def test_mpv_multiplicity_metadata_has_stable_empty_schema() -> None:
 
     mpv_df = pd.DataFrame()
     mpv = MinimumPValue.__new__(MinimumPValue)
+    mpv.correction_methods = ("none", "holm")
+    mpv.selection_method = "holm"
     mpv.multiplicity_method = "holm"
     mpv._add_multiplicity_columns(mpv_df=mpv_df)
 
     assert {
         "cox_ph.multiplicity.n_tests",
         "log_rank.multiplicity.n_tests",
-        "multiplicity.method",
+        "multiplicity.methods",
+        "multiplicity.selection_method",
     } <= set(mpv_df.columns)
     assert mpv_df["cox_ph.multiplicity.n_tests"].empty
     assert mpv_df["log_rank.multiplicity.n_tests"].empty

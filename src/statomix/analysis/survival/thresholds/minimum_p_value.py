@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import warnings
+from collections.abc import Sequence
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -9,7 +12,11 @@ from fileverse.clean_path_name import clean_path_name
 from fileverse.formats.zarr import BaseZARR
 from tqdm.auto import tqdm
 
-from statomix.analysis.multiplicity import holm_adjust_with_missing
+from statomix.analysis.multiplicity import (
+    CORRECTION_REGISTRY,
+    adjust_p_values_with_missing,
+    normalize_correction_methods,
+)
 from statomix.analysis.survival.binary import BinaryClassSurv
 from statomix.analysis.survival.data import prepare_survival_data
 from statomix.logging import get_logger
@@ -20,9 +27,9 @@ logger = get_logger(name="MinimumPValue")
 class MinimumPValue:
     """Scan numerical cutoffs while retaining invalid and failed splits.
 
-    Raw p-values remain available for exploratory inspection. By default,
-    Holm-adjusted p-values are added across all successfully tested cutoffs,
-    and significance-dependent markers use those adjusted values.
+    Raw p-values are the default exploratory view. Optional registered
+    corrections are calculated independently for Cox-PH and log-rank p-value
+    families, while cutoff-selection markers use ``selection_method``.
     """
 
     MODULE_NAME = "Survival -Threshold MPV"
@@ -38,7 +45,9 @@ class MinimumPValue:
         search_resolution: float = 0.5,
         show_progress: bool = True,
         alpha: float = 0.05,
-        multiplicity_method: str = "holm",
+        multiplicity_method: str | None = None,
+        correction_methods: str | Sequence[str] | None = None,
+        selection_method: str = "none",
     ) -> None:
         if not 0 < alpha < 1:
             raise ValueError(f"alpha must be in (0, 1), got {alpha!r}")
@@ -53,10 +62,29 @@ class MinimumPValue:
                 "iqr_multiplier must be non-negative or None, got "
                 f"{iqr_multiplier!r}"
             )
-        if multiplicity_method not in {"holm", "none"}:
+        if multiplicity_method is not None:
+            if correction_methods is not None or selection_method != "none":
+                raise ValueError(
+                    "multiplicity_method cannot be combined with "
+                    "correction_methods or a non-default selection_method."
+                )
+            warnings.warn(
+                "multiplicity_method is deprecated; use correction_methods "
+                "and selection_method instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            correction_methods = (multiplicity_method,)
+            selection_method = multiplicity_method
+
+        normalized_methods = normalize_correction_methods(
+            correction_methods,
+            selection_method=selection_method,
+        )
+        if selection_method not in normalized_methods:
             raise ValueError(
-                "multiplicity_method must be 'holm' or 'none', got "
-                f"{multiplicity_method!r}"
+                f"selection_method={selection_method!r} is not available in "
+                f"{normalized_methods}."
             )
 
         self.alpha = alpha
@@ -66,7 +94,11 @@ class MinimumPValue:
         self.iqr_multiplier = iqr_multiplier
         self.search_resolution = search_resolution
         self.use_synthetic_cutoffs = use_synthetic_cutoffs
-        self.multiplicity_method = multiplicity_method
+        self.correction_methods = normalized_methods
+        self.selection_method = selection_method
+        # Compatibility attribute for callers that inspected the former
+        # single-method configuration. New code should use selection_method.
+        self.multiplicity_method = selection_method
         self.surv_df_mpv = surv_df_mpv
 
         required_cols = {"time", "event"}
@@ -147,7 +179,9 @@ class MinimumPValue:
         col_group = self.groups["col"]
         col_meta = dict(col_group.attrs.get("meta", {}))
         col_meta.setdefault("mpv_data_exists", False)
-        col_meta["multiplicity_method"] = self.multiplicity_method
+        col_meta["correction_methods"] = list(self.correction_methods)
+        col_meta["selection_method"] = self.selection_method
+        col_meta["multiplicity_method"] = self.selection_method
         col_group.attrs["meta"] = col_meta
 
     def _create_paths(self):
@@ -163,6 +197,13 @@ class MinimumPValue:
         self.paths["plot_median_follow_up"] = base_path / "plot_median_follow_up.png"
         self.paths["plot_hr_vs_p_value_scatter"] = (
             base_path / "plot_hr_vs_p_value_scatter.png"
+        )
+        self.paths["plot_p_values_by_correction"] = {
+            correction: base_path / f"plot_p_values_{correction}.png"
+            for correction in self.correction_methods
+        }
+        self.paths["plot_p_values_all_corrections"] = (
+            base_path / "plot_p_values_all_corrections.png"
         )
 
     def _get_thresholds(self) -> np.ndarray:
@@ -303,6 +344,40 @@ class MinimumPValue:
                 "available yet)."
             )
 
+    def _resolve_correction(self, correction: str | None) -> str:
+        resolved = self.selection_method if correction is None else correction
+        if resolved not in CORRECTION_REGISTRY:
+            raise ValueError(
+                f"Unknown correction method {resolved!r}. Supported methods: "
+                f"{list(CORRECTION_REGISTRY)}"
+            )
+        if resolved not in self.correction_methods:
+            raise ValueError(
+                f"Correction method {resolved!r} was not configured for this "
+                f"MPV run. Available methods: {list(self.correction_methods)}"
+            )
+        return resolved
+
+    def _p_value_column(self, *, family: str, correction: str) -> str:
+        raw_column = f"{family}.p_value"
+        column = raw_column if correction == "none" else f"{raw_column}_{correction}"
+        if column not in self.mpv_df.columns:
+            raise RuntimeError(
+                f"MPV artifact does not contain {column!r}. Existing artifacts "
+                "are immutable; regenerate with replace=True to calculate the "
+                "requested correction."
+            )
+        return column
+
+    def _refresh_marker_cache(self) -> None:
+        self.marked_thresholds_by_correction = {
+            correction: self._build_marked_threshold_dicts(correction=correction)
+            for correction in self.correction_methods
+        }
+        self.marked_threshold_dicts = self.marked_thresholds_by_correction[
+            self.selection_method
+        ]
+
     def create_mpv_data(self, replace: bool = False) -> pd.DataFrame:
 
         col_group = self.groups["col"]
@@ -339,18 +414,46 @@ class MinimumPValue:
             return self.mpv_df
 
         self._save_marked_thresholds_data(replace=replace)
-
-        _ = self.plot_dashboard(save_path=self.paths["plot_dashboard"])
-        _ = self.plot_median_follow_up(save_path=self.paths["plot_median_follow_up"])
-        _ = self.plot_hr_vs_pvalue_scatter(
-            save_path=self.paths["plot_hr_vs_p_value_scatter"]
-        )
+        self._create_plots()
 
         col_meta["mpv_data_exists"] = True
         col_meta["status"] = "completed"
         col_meta["failure_reason"] = None
         col_group.attrs["meta"] = col_meta
         return self.mpv_df
+
+    def _create_plots(self) -> None:
+        """Create the standard, correction-specific, and comparison figures."""
+
+        for correction in self.correction_methods:
+            figure = self.plot_p_values(
+                correction=correction,
+                save_path=self.paths["plot_p_values_by_correction"][correction],
+            )
+            plt.close(figure)
+
+        figure = self.plot_p_values_all_corrections(
+            save_path=self.paths["plot_p_values_all_corrections"]
+        )
+        plt.close(figure)
+
+        figure = self.plot_dashboard(
+            correction=self.selection_method,
+            save_path=self.paths["plot_dashboard"],
+        )
+        plt.close(figure)
+
+        figure = self.plot_median_follow_up(
+            correction=self.selection_method,
+            save_path=self.paths["plot_median_follow_up"],
+        )
+        plt.close(figure)
+
+        figure = self.plot_hr_vs_pvalue_scatter(
+            correction=self.selection_method,
+            save_path=self.paths["plot_hr_vs_p_value_scatter"],
+        )
+        plt.close(figure)
 
     def _create_mpv_df(self, replace: bool) -> pd.DataFrame:
 
@@ -359,7 +462,7 @@ class MinimumPValue:
                 f"mpv_df already exists at {self.paths['mpv_df']}, set replace=True to create a new one"
             )
             self.mpv_df = pd.read_parquet(self.paths["mpv_df"])
-            self.marked_threshold_dicts = self._build_marked_threshold_dicts()
+            self._refresh_marker_cache()
             return self.mpv_df
 
         thresholds = self._get_thresholds()
@@ -395,7 +498,7 @@ class MinimumPValue:
         mpv_df.to_csv(self.paths["mpv_df"].with_suffix(suffix=".csv"), index=False)
 
         self.mpv_df = mpv_df
-        self.marked_threshold_dicts = self._build_marked_threshold_dicts()
+        self._refresh_marker_cache()
 
         return self.mpv_df
 
@@ -404,7 +507,7 @@ class MinimumPValue:
 
         Cox-PH and log-rank p-values are separate correction families. Their
         reported family sizes must therefore be computed independently using
-        the same finite-value rule as ``holm_adjust_with_missing``.
+        the same finite-value rule as the correction adapter.
 
         This method deliberately does not rewrite historical artifacts. New
         MPV artifacts contain the per-family fields; existing artifacts loaded
@@ -426,13 +529,18 @@ class MinimumPValue:
             finite = np.isfinite(raw_values)
             mpv_df[count_column] = int(finite.sum())
 
-            if self.multiplicity_method == "holm":
-                adjusted = holm_adjust_with_missing(raw_values)
-            else:
-                adjusted = raw_values
-            mpv_df[f"{p_value_column}_{self.multiplicity_method}"] = adjusted
+            for correction in self.correction_methods:
+                if correction == "none":
+                    continue
+                adjusted = adjust_p_values_with_missing(
+                    raw_values,
+                    method=correction,
+                )
+                mpv_df[f"{p_value_column}_{correction}"] = adjusted
 
-        mpv_df["multiplicity.method"] = self.multiplicity_method
+        methods_label = "|".join(self.correction_methods)
+        mpv_df["multiplicity.methods"] = methods_label
+        mpv_df["multiplicity.selection_method"] = self.selection_method
 
     def _save_marked_thresholds_data(self, replace):
 
@@ -487,20 +595,16 @@ class MinimumPValue:
     Plot methods.
     """
 
-    def _build_marked_threshold_dicts(self) -> list[dict]:
-        """
-        Compute the three reference markers (median / min p-value / closest
-        significant threshold to median) from self.mpv_df. Called once by
-        get_mpv_df() right after self.mpv_df is (re)assigned, and cached as
-        self.marked_threshold_dicts -- not recomputed elsewhere, so it always
-        reflects whichever mpv_df was most recently loaded or generated.
-        """
+    def _build_marked_threshold_dicts(
+        self,
+        *,
+        correction: str | None = None,
+    ) -> list[dict]:
+        """Compute reference markers for one configured correction method."""
+
+        correction = self._resolve_correction(correction)
         mpv_df = self.mpv_df
         target_median = self.target_col_stats["median"]
-        adjusted_column = f"cox_ph.p_value_{self.multiplicity_method}"
-        p_value_col = (
-            adjusted_column if adjusted_column in mpv_df.columns else "cox_ph.p_value"
-        )
 
         if mpv_df.empty or "threshold" not in mpv_df.columns:
             return [
@@ -518,6 +622,11 @@ class MinimumPValue:
                     "ls": "--",
                 },
             ]
+
+        p_value_col = self._p_value_column(
+            family="cox_ph",
+            correction=correction,
+        )
 
         median_matches = mpv_df.index[mpv_df["threshold"] == target_median]
         median_idx = (
@@ -554,13 +663,15 @@ class MinimumPValue:
             },
         ]
 
-    def _add_threshold_markers(self, ax) -> None:
-        """
-        Draw the three cached reference markers (self.marked_threshold_dicts) as
-        vertical lines on `ax`, skipping any whose idx is None. Shared by
-        every plot method below.
-        """
-        for threshold_dict in self.marked_threshold_dicts:
+    def _add_threshold_markers(self, ax, *, correction: str | None = None) -> None:
+        """Draw correction-specific reference markers as vertical lines."""
+
+        correction = self._resolve_correction(correction)
+        marker_cache = getattr(self, "marked_thresholds_by_correction", {})
+        threshold_dicts = marker_cache.get(correction)
+        if threshold_dicts is None:
+            threshold_dicts = self._build_marked_threshold_dicts(correction=correction)
+        for threshold_dict in threshold_dicts:
             if threshold_dict["idx"] is None:
                 continue
             threshold = float(self.mpv_df.loc[threshold_dict["idx"], "threshold"])
@@ -581,6 +692,7 @@ class MinimumPValue:
         log_scale=True,
         save_path=None,
         dpi=300,
+        correction: str | None = None,
     ):
         """Cox hazard ratio (log scale) with shaded 95% CI, across thresholds."""
         self._require_mpv_df()
@@ -608,7 +720,7 @@ class MinimumPValue:
         )
         ax.axhline(1.0, color="black", lw=0.8, alpha=0.5, label="HR = 1 (no effect)")
 
-        self._add_threshold_markers(ax)
+        self._add_threshold_markers(ax, correction=correction)
 
         ax.set_xlabel("Threshold")
         if log_scale:
@@ -648,111 +760,92 @@ class MinimumPValue:
         log_scale=True,
         save_path=None,
         dpi=300,
+        correction: str | None = None,
     ):
-        """
-        Cox PH and/or log-rank p-values across the same threshold axis.
+        """Plot raw or one corrected p-value view across thresholds.
 
-        p_value: "cox_ph", "log_rank", or "both" (default).
+        A correction-specific view retains the raw values as a thin reference
+        and overlays the selected adjusted values. ``correction="none"`` plots
+        raw p-values only.
         """
         self._require_mpv_df()
+        correction = self._resolve_correction(correction)
+        if p_value not in {"cox_ph", "log_rank", "both"}:
+            raise ValueError('p_value must be one of "cox_ph", "log_rank", or "both"')
 
         own_fig = ax is None
         if own_fig:
             fig, ax = plt.subplots(figsize=figsize)
 
         x = self.mpv_df["threshold"]
-        if "cox_ph.p_value" in self.mpv_df.columns:
-            cox_p = (
-                np.clip(self.mpv_df["cox_ph.p_value"].to_numpy(), 1e-300, None)
-                if log_scale
-                else self.mpv_df["cox_ph.p_value"].to_numpy()
-            )
-        else:
-            cox_p = np.full_like(x, np.nan)
-            logger.warning("No valid splits for Cox-PH, skipping Cox PH p-value plot.")
+        families = {
+            "cox_ph": ("Cox PH", "tab:blue", "navy"),
+            "log_rank": ("Log-rank", "tab:orange", "darkorange"),
+        }
+        selected_families = tuple(families) if p_value == "both" else (p_value,)
 
-        if "log_rank.p_value" in self.mpv_df.columns:
-            lr_raw = self.mpv_df["log_rank.p_value"].to_numpy(dtype=float)
-            lr_p = np.clip(lr_raw, 1e-300, None) if log_scale else lr_raw
-        else:
-            lr_p = np.full(len(self.mpv_df), np.nan)
+        for family in selected_families:
+            family_label, raw_color, adjusted_color = families[family]
+            raw_column = f"{family}.p_value"
+            if raw_column not in self.mpv_df.columns:
+                logger.warning(
+                    "No valid splits for %s; skipping its p-value plot.",
+                    family_label,
+                )
+                continue
 
-        cox_adjusted_column = f"cox_ph.p_value_{self.multiplicity_method}"
-        log_rank_adjusted_column = f"log_rank.p_value_{self.multiplicity_method}"
-
-        def plot_adjusted(*, column: str, color: str, label: str) -> None:
-            if self.multiplicity_method == "none":
-                return
-            if column not in self.mpv_df.columns:
-                return
-            adjusted = self.mpv_df[column].to_numpy(dtype=float)
+            raw_values = self.mpv_df[raw_column].to_numpy(dtype=float)
             if log_scale:
-                adjusted = np.clip(adjusted, 1e-300, None)
+                raw_values = np.clip(raw_values, 1e-300, None)
+            raw_label = (
+                f"{family_label} raw"
+                if correction != "none"
+                else f"{family_label} p-value"
+            )
             ax.plot(
                 x,
-                adjusted,
-                color=color,
-                lw=1.6,
-                ls="--",
-                label=label,
+                raw_values,
+                color=raw_color,
+                lw=1.2,
+                marker=".",
+                alpha=0.7 if correction != "none" else 1.0,
+                label=raw_label,
             )
 
-        if p_value == "cox_ph":
-            ax.plot(
-                x, cox_p, color="tab:blue", lw=1.2, marker=".", label="Cox PH p-value"
-            )
-            plot_adjusted(
-                column=cox_adjusted_column,
-                color="navy",
-                label=f"Cox PH ({self.multiplicity_method}-adjusted)",
-            )
-            default_title = f"Cox PH p-value across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}"
-        elif p_value == "log_rank":
-            ax.plot(
-                x,
-                lr_p,
-                color="tab:orange",
-                lw=1.2,
-                marker=".",
-                label="Log-rank p-value",
-            )
-            plot_adjusted(
-                column=log_rank_adjusted_column,
-                color="darkorange",
-                label=f"Log-rank ({self.multiplicity_method}-adjusted)",
-            )
-            default_title = f"Log-rank p-value across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}"
-        elif p_value == "both":
-            ax.plot(
-                x, cox_p, color="tab:blue", lw=1.2, marker=".", label="Cox PH p-value"
-            )
-            ax.plot(
-                x,
-                lr_p,
-                color="tab:orange",
-                lw=1.2,
-                marker=".",
-                label="Log-rank p-value",
-            )
-            plot_adjusted(
-                column=cox_adjusted_column,
-                color="navy",
-                label=f"Cox PH ({self.multiplicity_method}-adjusted)",
-            )
-            plot_adjusted(
-                column=log_rank_adjusted_column,
-                color="darkorange",
-                label=f"Log-rank ({self.multiplicity_method}-adjusted)",
-            )
-            default_title = f"Cox PH vs. log-rank p-value across scanned thresholds\n{self.surv_label}:{self.target_col_stats['name']}"
-        else:
-            raise ValueError('p_value must be one of "cox_ph", "log_rank", or "both"')
+            if correction != "none":
+                adjusted_column = self._p_value_column(
+                    family=family,
+                    correction=correction,
+                )
+                adjusted_values = self.mpv_df[adjusted_column].to_numpy(dtype=float)
+                if log_scale:
+                    adjusted_values = np.clip(adjusted_values, 1e-300, None)
+                ax.plot(
+                    x,
+                    adjusted_values,
+                    color=adjusted_color,
+                    lw=1.7,
+                    ls="--",
+                    label=f"{family_label} ({correction}-adjusted)",
+                )
+
+        family_title = {
+            "cox_ph": "Cox PH",
+            "log_rank": "Log-rank",
+            "both": "Cox PH vs. log-rank",
+        }[p_value]
+        view_label = "raw (no correction)" if correction == "none" else correction
+        default_title = (
+            f"{family_title} p-values across scanned thresholds "
+            f"[{view_label}]\n{self.surv_label}:"
+            f"{self.target_col_stats['name']}"
+        )
 
         ax.axhline(
             self.alpha, color="tab:red", ls="--", lw=1, label=f"alpha = {self.alpha}"
         )
 
-        self._add_threshold_markers(ax)
+        self._add_threshold_markers(ax, correction=correction)
 
         ax.set_xlabel("Threshold")
         if log_scale:
@@ -779,6 +872,94 @@ class MinimumPValue:
             return fig
         return ax
 
+    def plot_p_values_all_corrections(
+        self,
+        *,
+        title=None,
+        grid=True,
+        figsize=(12, 9),
+        log_scale=True,
+        save_path=None,
+        dpi=300,
+    ):
+        """Plot every configured correction in separate test-family panels."""
+
+        self._require_mpv_df()
+        fig, axes = plt.subplots(2, 1, figsize=figsize, sharex=True)
+        x = self.mpv_df["threshold"]
+        colors = plt.get_cmap("tab10")
+        family_specs = (
+            ("cox_ph", "Cox PH", axes[0]),
+            ("log_rank", "Log-rank", axes[1]),
+        )
+
+        for family, family_label, ax in family_specs:
+            raw_column = f"{family}.p_value"
+            if raw_column not in self.mpv_df.columns:
+                logger.warning(
+                    "No valid splits for %s; skipping its comparison panel.",
+                    family_label,
+                )
+            else:
+                for index, correction in enumerate(self.correction_methods):
+                    column = self._p_value_column(
+                        family=family,
+                        correction=correction,
+                    )
+                    values = self.mpv_df[column].to_numpy(dtype=float)
+                    if log_scale:
+                        values = np.clip(values, 1e-300, None)
+                    label = "Raw (none)" if correction == "none" else correction
+                    ax.plot(
+                        x,
+                        values,
+                        color=colors(index % 10),
+                        lw=1.5,
+                        marker="." if correction == "none" else None,
+                        ls="-" if correction == "none" else "--",
+                        label=label,
+                    )
+
+            ax.axhline(
+                self.alpha,
+                color="tab:red",
+                ls=":",
+                lw=1,
+                label=f"alpha = {self.alpha}",
+            )
+            self._add_threshold_markers(
+                ax,
+                correction=self.selection_method,
+            )
+            ax.set_title(f"{family_label} p-value family")
+            ax.set_ylabel("p-value (log scale)" if log_scale else "p-value")
+            if log_scale:
+                ax.set_yscale("log")
+            if grid:
+                ax.grid(True, which="both", alpha=0.2)
+            ax.legend(loc="upper right", fontsize=8, ncols=2)
+
+        axes[-1].set_xlabel("Threshold")
+        selection_label = (
+            "raw" if self.selection_method == "none" else self.selection_method
+        )
+        fig.suptitle(
+            (
+                "All configured p-value corrections\n"
+                f"{self.surv_label}:{self.target_col_stats['name']} "
+                f"(threshold markers: {selection_label})"
+                if title is None
+                else title
+            ),
+            fontsize=13,
+        )
+        fig.tight_layout()
+
+        if save_path is not None:
+            fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
+        return fig
+
     def plot_ci_width(
         self,
         ax=None,
@@ -788,6 +969,7 @@ class MinimumPValue:
         log_scale=True,
         save_path=None,
         dpi=300,
+        correction: str | None = None,
     ):
         """
         Width of the Cox HR confidence interval across thresholds (upper /
@@ -808,7 +990,7 @@ class MinimumPValue:
 
         ax.plot(x, ci_ratio, color="tab:brown", lw=1.2, marker=".")
 
-        self._add_threshold_markers(ax)
+        self._add_threshold_markers(ax, correction=correction)
 
         ax.set_xlabel("Threshold")
         if log_scale:
@@ -846,6 +1028,7 @@ class MinimumPValue:
         figsize=(11, 5),
         save_path=None,
         dpi=300,
+        correction: str | None = None,
     ):
         """
         Median survival time per group across thresholds, with shaded CI
@@ -919,7 +1102,7 @@ class MinimumPValue:
         )
         ax.fill_between(x, g1_lo, g1_hi_plot, color="tab:orange", alpha=0.12)
 
-        self._add_threshold_markers(ax)
+        self._add_threshold_markers(ax, correction=correction)
 
         ax.set_xlabel("Threshold")
         ax.set_ylabel("Median Survival Time")
@@ -950,7 +1133,14 @@ class MinimumPValue:
         return ax
 
     def plot_median_follow_up(
-        self, ax=None, title=None, grid=True, figsize=(11, 4.5), save_path=None, dpi=300
+        self,
+        ax=None,
+        title=None,
+        grid=True,
+        figsize=(11, 4.5),
+        save_path=None,
+        dpi=300,
+        correction: str | None = None,
     ):
         """Median follow-up time per group across thresholds (sanity check)."""
         self._require_mpv_df()
@@ -993,7 +1183,7 @@ class MinimumPValue:
             alpha=0.10,
         )
 
-        self._add_threshold_markers(ax)
+        self._add_threshold_markers(ax, correction=correction)
 
         ax.set_xlabel("Threshold")
         ax.set_ylabel("Median Follow-up Time")
@@ -1019,7 +1209,14 @@ class MinimumPValue:
         return ax
 
     def plot_group_sizes(
-        self, ax=None, title=None, grid=True, figsize=(11, 4.5), save_path=None, dpi=300
+        self,
+        ax=None,
+        title=None,
+        grid=True,
+        figsize=(11, 4.5),
+        save_path=None,
+        dpi=300,
+        correction: str | None = None,
     ):
         """Absolute group sizes (group0_n, group1_n) across thresholds."""
         self._require_mpv_df()
@@ -1057,7 +1254,7 @@ class MinimumPValue:
             label="Total n (sanity check)",
         )
 
-        self._add_threshold_markers(ax)
+        self._add_threshold_markers(ax, correction=correction)
 
         ax.set_xlabel("Threshold")
         ax.set_ylabel("Group size (n)")
@@ -1092,6 +1289,7 @@ class MinimumPValue:
         log_scale=True,
         save_path=None,
         dpi=300,
+        correction: str | None = None,
     ):
         """
         Group0_n / group1_n split ratio across thresholds (log scale), with
@@ -1125,7 +1323,7 @@ class MinimumPValue:
         ax.plot(x, ratio, color="tab:green", lw=1.2, marker=".")
         ax.axhline(1.0, color="black", lw=0.8, alpha=0.4, label="Balanced (1:1)")
 
-        self._add_threshold_markers(ax)
+        self._add_threshold_markers(ax, correction=correction)
 
         ax.set_xlabel("Threshold")
         if log_scale:
@@ -1162,6 +1360,7 @@ class MinimumPValue:
         grid=True,
         save_path=None,
         dpi=300,
+        correction: str | None = None,
     ):
         """
         Scatter of Cox HR (x, log scale) vs. Cox p-value (y, log scale),
@@ -1171,6 +1370,7 @@ class MinimumPValue:
         the x-axis here is HR, not threshold/index.
         """
         self._require_mpv_df()
+        correction = self._resolve_correction(correction)
 
         own_fig = ax is None
         if own_fig:
@@ -1181,11 +1381,9 @@ class MinimumPValue:
         if color_by not in self.mpv_df.columns:
             raise ValueError(f"color_by={color_by!r} is not a result column.")
         color_vals = self.mpv_df[color_by]
-        adjusted_column = f"cox_ph.p_value_{self.multiplicity_method}"
-        p_value_column = (
-            adjusted_column
-            if adjusted_column in self.mpv_df.columns
-            else "cox_ph.p_value"
+        p_value_column = self._p_value_column(
+            family="cox_ph",
+            correction=correction,
         )
         sc = ax.scatter(
             self.mpv_df["cox_ph.hr.raw.hr"],
@@ -1199,7 +1397,8 @@ class MinimumPValue:
         cbar = fig.colorbar(sc, ax=ax, pad=0.02)
         cbar.set_label(color_by)
 
-        for threshold_dict in self.marked_threshold_dicts:
+        threshold_dicts = self.marked_thresholds_by_correction[correction]
+        for threshold_dict in threshold_dicts:
             if threshold_dict["idx"] is None:
                 continue
             row = self.mpv_df.loc[threshold_dict["idx"]]
@@ -1221,7 +1420,8 @@ class MinimumPValue:
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("Hazard Ratio (log scale)")
-        ax.set_ylabel(f"Cox p-value ({self.multiplicity_method}-adjusted, log scale)")
+        p_value_label = "raw" if correction == "none" else f"{correction}-adjusted"
+        ax.set_ylabel(f"Cox p-value ({p_value_label}, log scale)")
 
         if title is None:
             ax.set_title(
@@ -1244,7 +1444,13 @@ class MinimumPValue:
         return ax
 
     def plot_dashboard(
-        self, imbalance_factor=10.0, title=None, grid=True, save_path=None, dpi=300
+        self,
+        imbalance_factor=10.0,
+        title=None,
+        grid=True,
+        save_path=None,
+        dpi=300,
+        correction: str | None = None,
     ):
         """
         Multi-panel dashboard sharing one threshold x-axis:
@@ -1255,6 +1461,7 @@ class MinimumPValue:
           5. Median survival per group with CI bands ("not reached" capped)
         """
         self._require_mpv_df()
+        correction = self._resolve_correction(correction)
 
         fig, axes = plt.subplots(
             5,
@@ -1265,28 +1472,44 @@ class MinimumPValue:
         )
         ax_p, ax_hr, ax_n, ax_ratio, ax_surv = axes
 
-        self.plot_p_values(p_value="both", ax=ax_p, grid=grid)
+        self.plot_p_values(
+            p_value="both",
+            ax=ax_p,
+            grid=grid,
+            correction=correction,
+        )
         ax_p.set_xlabel("")
 
-        self.plot_hr_with_ci(ax=ax_hr, grid=grid)
+        self.plot_hr_with_ci(ax=ax_hr, grid=grid, correction=correction)
         ax_hr.set_xlabel("")
         ax_hr.set_title("Cox Hazard Ratio (log scale) with 95% CI")
 
-        self.plot_group_sizes(ax=ax_n, grid=grid)
+        self.plot_group_sizes(ax=ax_n, grid=grid, correction=correction)
         ax_n.set_title("")
         ax_n.set_xlabel("")
 
-        self.plot_split_ratio(imbalance_factor=imbalance_factor, ax=ax_ratio, grid=grid)
+        self.plot_split_ratio(
+            imbalance_factor=imbalance_factor,
+            ax=ax_ratio,
+            grid=grid,
+            correction=correction,
+        )
         ax_ratio.set_title("")
         ax_ratio.set_xlabel("")
 
-        self.plot_median_survival(ax=ax_surv, cap_not_reached=True, grid=grid)
+        self.plot_median_survival(
+            ax=ax_surv,
+            cap_not_reached=True,
+            grid=grid,
+            correction=correction,
+        )
         ax_surv.set_title("")
 
         axes[-1].set_xlabel("Threshold")
         fig.suptitle(
             (
-                f"Threshold scan dashboard\n{self.surv_label}:{self.target_col_stats['name']}"
+                f"Threshold scan dashboard [{correction}]\n"
+                f"{self.surv_label}:{self.target_col_stats['name']}"
                 if title is None
                 else title
             ),
