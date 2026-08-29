@@ -31,6 +31,8 @@ def _mpv_for_plotting() -> MinimumPValue:
             "valid_split": [True, True, True],
             "cox_ph.p_value": [0.01, 0.04, 0.20],
             "log_rank.p_value": [0.02, 0.03, 0.30],
+            "cox_ph.hr.raw.hr": [0.8, 1.2, 2.0],
+            "split_ratio": [1.0, 1.2, 0.8],
         }
     )
     mpv._add_multiplicity_columns(mpv_df=mpv.mpv_df)
@@ -164,6 +166,19 @@ def test_dashboard_always_delegates_to_raw_view() -> None:
         assert mocked_method.call_args.kwargs["correction"] == "none"
 
     plt.close(figure)
+
+
+def test_scatter_uses_raw_p_values_by_default() -> None:
+    mpv = _mpv_for_plotting()
+
+    raw_figure = mpv.plot_hr_vs_pvalue_scatter()
+    corrected_figure = mpv.plot_hr_vs_pvalue_scatter(correction="fdr_bh")
+
+    assert "raw" in raw_figure.axes[0].get_ylabel()
+    assert "fdr_bh-adjusted" in corrected_figure.axes[0].get_ylabel()
+
+    plt.close(raw_figure)
+    plt.close(corrected_figure)
 
 
 def test_missing_requested_correction_requires_regeneration() -> None:

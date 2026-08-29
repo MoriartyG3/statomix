@@ -453,7 +453,7 @@ class MinimumPValue:
         plt.close(figure)
 
         figure = self.plot_hr_vs_pvalue_scatter(
-            correction=self.selection_method,
+            correction="none",
             save_path=self.paths["plot_hr_vs_p_value_scatter"],
         )
         plt.close(figure)
@@ -601,7 +601,7 @@ class MinimumPValue:
     def _build_marked_threshold_dicts(
         self,
         *,
-        correction: str | None = None,
+        correction: str | None = "none",
     ) -> list[dict]:
         """Compute reference markers for one configured correction method."""
 
@@ -1395,7 +1395,9 @@ class MinimumPValue:
         colored by `color_by` (default: "threshold"; alternative:
         "split_ratio"). The three reference thresholds are drawn as open
         circles at their (HR, p-value) position rather than axvlines, since
-        the x-axis here is HR, not threshold/index.
+        the x-axis here is HR, not threshold/index. The default scatter uses
+        raw p-values; pass a configured correction explicitly for an adjusted
+        view.
         """
         self._require_mpv_df()
         correction = self._resolve_correction(correction)
