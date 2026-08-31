@@ -30,29 +30,42 @@ incidental formatting changes.
 
 ## Minimum-p-value threshold search
 
-- Every candidate split receives a row with `valid_split`, `invalid_reason`,
-  and structured error fields; failed candidates are no longer silently
-  discarded.
-- Raw Cox and log-rank p-values remain in the output and are now the default;
-  no multiplicity correction is silently applied. Optional Bonferroni, Holm,
-  Holm-Sidak, Hochberg, Benjamini-Hochberg, and Benjamini-Yekutieli values can
-  be requested together through `correction_methods`. Each method is applied
-  independently to the finite Cox-PH family and the finite log-rank family.
-- `selection_method` explicitly chooses which raw or corrected family drives
-  significance-dependent threshold markers. Every configured method also
-  receives its own p-value plot, and a combined two-panel figure compares all
-  configured methods. The former `multiplicity_method` argument remains as a
-  deprecated single-method compatibility alias.
-- New MPV artifacts record the finite p-value count separately for each
-  correction family in `cox_ph.multiplicity.n_tests` and
-  `log_rank.multiplicity.n_tests`. The former shared
-  `multiplicity.n_tests` field was ambiguous when the two families had
-  different counts. Existing completed MPV artifacts are not rewritten during
-  ordinary loading and retain their legacy schema until explicitly regenerated.
-- Plot x-axes and reference markers use the actual threshold values rather
-  than dataframe row positions.
-- Existing MPV metadata is retained and augmented with lifecycle status rather
-  than reset during object construction.
+- Cutoff analysis is separated into a descriptive `ThresholdScan` and an
+  inferential `MaximallySelectedLogRank`. The orchestration API requires the
+  caller to choose `mode="exploratory"` or `mode="inferential"` explicitly.
+- Candidates are unique patient partitions constrained by `minprop` and
+  `maxprop`. Tied values and synthetic grid points that produce the same split
+  are evaluated once. Legacy IQR and percent-trim candidate filters are not
+  accepted for schema-2 scans.
+- Inferential mode reports one global maximally selected log-rank p-value. The
+  fast method is the Lausen--Schumacher (1992) Brownian-bridge approximation;
+  the alternative is conditional Monte Carlo with the corrected
+  `(1 + extreme_count) / (B + 1)` estimator, Monte Carlo uncertainty, an
+  explicit seed, and stated exchangeability assumptions.
+- Cox-Wald p-values, hazard ratios, and ordinary confidence intervals remain
+  descriptive after cutoff selection. No Cox analogue of the log-rank maxstat
+  p-value is reported. Outputs and plots carry visible post-selection labels.
+- The generic correction registry is unchanged. Optional Bonferroni, Holm,
+  Holm-Sidak, Hochberg, Benjamini-Hochberg, and Benjamini-Yekutieli columns are
+  retained as row-wise exploratory sensitivity analyses, not as substitutes
+  for maxstat inference.
+- Cox and log-rank rows now have separate eligibility fields. Invalid or failed
+  rows are excluded consistently from every correction and plot. A Cox fit
+  failure no longer suppresses a valid log-rank result, and the log-rank test
+  statistic is persisted alongside its p-value.
+- Markers are family-specific. A Cox-Wald minimum is not drawn or serialized as
+  if it were the log-rank optimum. Inferential selection always uses the
+  log-rank maxstat maximum.
+- Schema-2 artifacts record an input-row hash and all scan settings in
+  `scan_config.json`, then use their SHA-256 configuration fingerprint in the
+  storage path. Settings include alpha, mode, candidate bounds, grid
+  configuration, corrections, maxstat method, permutation count, seed, batch
+  size, and uncertainty level.
+- Legacy MPV artifacts are not rewritten. They can be loaded read-only through
+  `MinimumPValue.load_legacy_artifact()` while new results use versioned paths.
+- The scientific limitation is explicit: the global p-value accounts for the
+  cutoff search but does not externally validate the chosen cutoff or remove
+  selection bias from its hazard ratio/confidence interval.
 
 ## Workflow behavior
 

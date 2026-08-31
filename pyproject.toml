@@ -1,6 +1,6 @@
 [project]
 name = "statomix"
-version = "0.2.0"
+version = "0.3.0"
 description = "Modular human-in-the-loop statistical analysis workflows."
 readme = "README.md"
 requires-python = ">=3.12"

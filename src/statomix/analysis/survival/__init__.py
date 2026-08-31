@@ -13,6 +13,18 @@ _EXPORTS = {
         "PreparedSurvivalData",
     ),
     "SingleClassSurv": ("statomix.analysis.survival.single", "SingleClassSurv"),
+    "MaxstatResult": (
+        "statomix.analysis.survival.thresholds.maxstat",
+        "MaxstatResult",
+    ),
+    "MaximallySelectedLogRank": (
+        "statomix.analysis.survival.thresholds.maxstat",
+        "MaximallySelectedLogRank",
+    ),
+    "ThresholdScan": (
+        "statomix.analysis.survival.thresholds.scan",
+        "ThresholdScan",
+    ),
     "prepare_survival_data": (
         "statomix.analysis.survival.data",
         "prepare_survival_data",
@@ -34,8 +46,11 @@ def __getattr__(name: str) -> Any:
 
 __all__ = (
     "BinaryClassSurv",
+    "MaxstatResult",
+    "MaximallySelectedLogRank",
     "MultiClassSurv",
     "PreparedSurvivalData",
     "SingleClassSurv",
+    "ThresholdScan",
     "prepare_survival_data",
 )

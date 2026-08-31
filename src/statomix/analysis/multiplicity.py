@@ -65,6 +65,7 @@ CORRECTION_REGISTRY: dict[str, CorrectionSpec] = {
 }
 
 SUPPORTED_CORRECTIONS = tuple(CORRECTION_REGISTRY)
+_P_VALUE_BOUNDARY_TOLERANCE = 1e-12
 
 
 def normalize_correction_methods(
@@ -106,9 +107,12 @@ def _validated_p_values(p_values: Iterable[float]) -> np.ndarray:
     values = np.asarray(list(p_values), dtype=float)
     if values.ndim != 1:
         raise ValueError("p_values must be one-dimensional")
-    if not np.isfinite(values).all() or ((values < 0) | (values > 1)).any():
+    outside_tolerance = (values < -_P_VALUE_BOUNDARY_TOLERANCE) | (
+        values > 1 + _P_VALUE_BOUNDARY_TOLERANCE
+    )
+    if not np.isfinite(values).all() or outside_tolerance.any():
         raise ValueError("p_values must be finite and in [0, 1]")
-    return values
+    return np.clip(values, 0.0, 1.0)
 
 
 def holm_adjust(p_values: Iterable[float]) -> np.ndarray:

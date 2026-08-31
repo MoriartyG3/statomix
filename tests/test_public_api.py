@@ -3,7 +3,12 @@ from __future__ import annotations
 
 def test_legacy_modules_reexport_refactored_implementations() -> None:
     from statomix.analysis.normality import Normality
-    from statomix.analysis.survival import BinaryClassSurv, SingleClassSurv
+    from statomix.analysis.survival import (
+        BinaryClassSurv,
+        MaximallySelectedLogRank,
+        SingleClassSurv,
+        ThresholdScan,
+    )
     from statomix.analytics.datatypes.numerical.normality import (
         Normality as LegacyNormality,
     )
@@ -19,4 +24,6 @@ def test_legacy_modules_reexport_refactored_implementations() -> None:
     assert LegacyNormality is Normality
     assert LegacyBinaryClassSurv is BinaryClassSurv
     assert LegacySingleClassSurv is SingleClassSurv
+    assert MaximallySelectedLogRank.__name__ == "MaximallySelectedLogRank"
+    assert ThresholdScan.__name__ == "ThresholdScan"
     assert BasePipeline is RefactoredBasePipeline

@@ -34,9 +34,13 @@ derived.cleaner.inherit_curated_state(
 See [CURATED_STATE_INHERITANCE.md](CURATED_STATE_INHERITANCE.md) for the
 validation, overwrite, lineage, and analyzer-regeneration contracts.
 
-Minimum-p-value scans use raw p-values by default and can calculate several
-corrections in one run. See [MPV_CORRECTIONS.md](MPV_CORRECTIONS.md) for the
-configuration, generated plots, and statistical interpretation.
+Survival cutoff analysis now separates descriptive `ThresholdScan` output from
+one global `MaximallySelectedLogRank` test. `MinimumPValue` requires an
+explicit exploratory or inferential mode; generic row-wise corrections remain
+available only as labeled sensitivity analyses. See
+[MPV_CORRECTIONS.md](MPV_CORRECTIONS.md) for candidate rules, methods,
+artifacts, and interpretation limits. The pinned reference and regression
+contract is in [MAXSTAT_VALIDATION.md](MAXSTAT_VALIDATION.md).
 
 ## Package layout
 

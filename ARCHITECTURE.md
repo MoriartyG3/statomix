@@ -17,10 +17,10 @@ boundaries.
 
 New analysis code does not own Excel presentation or workflow orchestration.
 The existing survival classes retain lazy validation helpers, and
-`MinimumPValue` retains its Zarr artifact adapter, solely to preserve public
-methods and persisted paths.  Those compatibility seams are deliberately
-local and do not run during module import; new features should put persistence
-in `storage` or `workflows`.
+`MinimumPValue` retains its Zarr artifact adapter as a compatibility
+orchestrator. Pure candidate construction lives in `ThresholdScan`, and the
+scan-level inferential procedure lives in `MaximallySelectedLogRank`. Those
+components do not depend on Zarr, plotting, or workflows.
 
 ## Stability boundary
 
@@ -30,8 +30,10 @@ The following are compatibility requirements:
   `statomix.dataset`, and `statomix.project`;
 - the public `Project`/`Dataset`/`Cleaner`/`Analyzer` method names and default
   call sequence;
-- Zarr group names, artifact filenames, workbook sheet names, and persisted
-  empty-artifact schemas;
+- existing Zarr group names, artifact filenames, workbook sheet names, and
+  persisted empty-artifact schemas, except for explicitly versioned scientific
+  schemas such as threshold-scan schema 2, which use new fingerprinted paths
+  and never rewrite legacy results;
 - legacy nested dictionaries returned by pipeline group selection.
 
 Internally, immutable dataclasses (`GroupBundle`, `AnalyzerInputPaths`, and
@@ -60,8 +62,8 @@ without changing workflow orchestration.  New storage or reporting formats
 should be adapters that consume domain results instead of being embedded in
 the statistical classes.
 
-Minimum-p-value corrections follow the same pattern: correction definitions
+Row-wise p-value corrections follow the same pattern: correction definitions
 and backend mappings live in `statomix.analysis.multiplicity`, while the MPV
-class consumes the registry for calculation, selection markers, and plotting.
-Adding a correction does not require another conditional branch in every MPV
-plot.
+orchestrator consumes the registry for exploratory sensitivity output. The
+maximally selected log-rank global p-value is a separate statistical procedure
+and is intentionally not registered as a generic correction.

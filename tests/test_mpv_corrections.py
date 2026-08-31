@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import matplotlib.pyplot as plt
@@ -22,7 +23,10 @@ def _mpv_for_plotting() -> MinimumPValue:
     mpv.alpha = 0.05
     mpv.correction_methods = ("none", "bonferroni", "fdr_bh")
     mpv.selection_method = "none"
+    mpv.selection_family = "cox_ph"
     mpv.multiplicity_method = "none"
+    mpv.mode = "exploratory"
+    mpv.maxstat_result = None
     mpv.surv_label = "OS"
     mpv.target_col_stats = {"name": "biomarker", "median": 2.1}
     mpv.mpv_df = pd.DataFrame(
@@ -30,7 +34,7 @@ def _mpv_for_plotting() -> MinimumPValue:
             "threshold": [1.0, 2.0, 3.0],
             "valid_split": [True, True, True],
             "cox_ph.p_value": [0.01, 0.04, 0.20],
-            "log_rank.p_value": [0.02, 0.03, 0.30],
+            "log_rank.p_value": [0.20, 0.03, 0.01],
             "cox_ph.hr.raw.hr": [0.8, 1.2, 2.0],
             "split_ratio": [1.0, 1.2, 0.8],
         }
@@ -46,6 +50,7 @@ def test_mpv_defaults_to_raw_p_values() -> None:
     assert signature.parameters["multiplicity_method"].default is None
     assert signature.parameters["correction_methods"].default is None
     assert signature.parameters["selection_method"].default == "none"
+    assert signature.parameters["mode"].default is None
     assert normalize_correction_methods(None) == ("none",)
 
 
@@ -89,6 +94,14 @@ def test_known_adjustments_and_raw_identity() -> None:
     )
 
 
+def test_numerical_boundary_noise_is_clipped_but_real_domain_errors_fail() -> None:
+    adjusted = adjust_p_values([1 + 5e-13, -5e-13], method="none")
+    np.testing.assert_allclose(adjusted, [1.0, 0.0])
+
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        adjust_p_values([1 + 2e-12], method="none")
+
+
 def test_no_correction_does_not_create_duplicate_raw_columns() -> None:
     mpv = MinimumPValue.__new__(MinimumPValue)
     mpv.correction_methods = ("none",)
@@ -118,8 +131,36 @@ def test_threshold_markers_are_computed_per_correction() -> None:
         for marker in mpv.marked_thresholds_by_correction["bonferroni"]
     }
 
-    assert raw_markers["Closest to Median"] == 1
-    assert bonferroni_markers["Closest to Median"] == 0
+    assert raw_markers["Closest significant Cox-Wald (descriptive)"] == 1
+    assert bonferroni_markers["Closest significant Cox-Wald (descriptive)"] == 0
+
+
+def test_threshold_markers_are_computed_per_test_family() -> None:
+    mpv = _mpv_for_plotting()
+    cox_markers = {
+        marker["label"]: marker["idx"]
+        for marker in mpv.marked_thresholds_by_family["cox_ph"]["none"]
+    }
+    log_rank_markers = {
+        marker["label"]: marker["idx"]
+        for marker in mpv.marked_thresholds_by_family["log_rank"]["none"]
+    }
+
+    assert cox_markers["Min Cox-Wald p (descriptive)"] == 0
+    assert log_rank_markers["Min log-rank p (descriptive)"] == 2
+
+
+def test_inferential_marker_is_the_log_rank_maxstat_optimum() -> None:
+    mpv = _mpv_for_plotting()
+    mpv.mode = "inferential"
+    mpv.selection_family = "log_rank"
+    mpv.maxstat_result = SimpleNamespace(optimal_threshold=3.0)
+    mpv._refresh_marker_cache()
+
+    selected = {marker["label"]: marker["idx"] for marker in mpv.marked_threshold_dicts}
+
+    assert selected["Maxstat optimum (log-rank)"] == 2
+    assert not any("Cox" in label for label in selected)
 
 
 def test_correction_specific_and_combined_plots() -> None:

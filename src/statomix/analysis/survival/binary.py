@@ -1,6 +1,7 @@
 """Binary-group log-rank, Kaplan-Meier, and Cox-PH analysis."""
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from lifelines import CoxPHFitter
 from lifelines.plotting import add_at_risk_counts
@@ -100,8 +101,9 @@ class BinaryClassSurv:
     km0, km1 : SingleClassSurv
         Fitted KM models for each group.
     log_rank_dict : dict
-        Log-rank test p-value, group sizes, and per-group median
-        survival/follow-up.
+        Family-specific validity, log-rank test statistic and p-value, group
+        sizes, and per-group median survival/follow-up. A Cox-fit failure does
+        not remove this result.
     cph : lifelines.CoxPHFitter
         Fitted Cox model with the grouping variable as the single
         covariate.
@@ -112,6 +114,12 @@ class BinaryClassSurv:
         whichever group was actually resolved as baseline, regardless of
         whether `baseline_group` was passed as a keyword or an explicit
         label.
+
+    Notes
+    -----
+    Cox and log-rank eligibility are tracked separately. Cox failures are
+    returned as structured, non-finite results so a valid log-rank comparison
+    remains available to threshold-scan callers.
 
     Raises
     ------
@@ -246,6 +254,14 @@ class BinaryClassSurv:
         group0_censored = group0_n - group0_events
         group1_censored = group1_n - group1_events
 
+        self.log_rank_valid = group0_n > 0 and group1_n > 0
+        self.log_rank_invalid_reason = None
+        if not self.log_rank_valid:
+            self.log_rank_invalid_reason = "empty_group"
+        elif group0_events + group1_events == 0:
+            self.log_rank_valid = False
+            self.log_rank_invalid_reason = "no_events_in_sample"
+
         self.split_valid = True
         self.split_invalid_reason = None
 
@@ -267,14 +283,20 @@ class BinaryClassSurv:
                     f"group0_events={group0_events}, group1_events={group1_events}"
                 )
 
-        elif group0_censored == 0 or group1_censored == 0:
-            self.split_valid = False
-            self.split_invalid_reason = "no_censoring"
-            if self.verbose:
-                logger.warning(
-                    f"[INVALID SPLIT] {self.split_invalid_reason}: "
-                    f"group0_censored={group0_censored}, group1_censored={group1_censored}"
-                )
+        elif (group0_censored == 0 or group1_censored == 0) and self.verbose:
+            logger.warning(
+                "[COX SPLIT NOTICE] A group has no censored observations: "
+                "group0_censored=%s, group1_censored=%s. The fit will be "
+                "attempted and its numerical result validated.",
+                group0_censored,
+                group1_censored,
+            )
+
+        # ``split_valid`` is retained as the established Cox-fit eligibility
+        # contract.  A log-rank comparison can remain defined when a group has
+        # no events or no censoring, so its eligibility is tracked separately.
+        self.cox_ph_valid = self.split_valid
+        self.cox_ph_invalid_reason = self.split_invalid_reason
 
         # elif group0_n < 10 or group1_n < 10:
         #     self.split_valid = False
@@ -344,10 +366,41 @@ class BinaryClassSurv:
             return tests_dict
 
         split_ratio = self.surv_df0.shape[0] / self.surv_df1.shape[0]
-        tests_dict = {}
-        tests_dict["split_ratio"] = split_ratio
-        tests_dict["cox_ph"] = self.get_cox_ph_dict()
-        tests_dict["log_rank"] = self.get_log_rank_dict()
+        tests_dict = {"split_ratio": split_ratio}
+        try:
+            tests_dict["log_rank"] = self.get_log_rank_dict()
+        except Exception as exc:
+            logger.warning(
+                "Log-rank analysis failed with %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            tests_dict["log_rank"] = {
+                "valid": False,
+                "invalid_reason": "analysis_error",
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "p_value": float("nan"),
+                "test_statistic": float("nan"),
+                "group0_n": self.surv_df0.shape[0],
+                "group1_n": self.surv_df1.shape[0],
+            }
+
+        try:
+            tests_dict["cox_ph"] = self.get_cox_ph_dict()
+        except Exception as exc:
+            logger.warning(
+                "Cox-PH analysis failed with %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            tests_dict["cox_ph"] = {
+                "split_valid": False,
+                "split_invalid_reason": "analysis_error",
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "p_value": float("nan"),
+            }
 
         self.tests_dict = tests_dict
         return tests_dict
@@ -356,16 +409,32 @@ class BinaryClassSurv:
         self.km0 = SingleClassSurv(surv_label=self.surv_label, surv_df=self.surv_df0)
         self.km1 = SingleClassSurv(surv_label=self.surv_label, surv_df=self.surv_df1)
 
-        log_rank_results = logrank_test(
-            self.surv_df0["time"],
-            self.surv_df1["time"],
-            event_observed_A=self.surv_df0["event"],
-            event_observed_B=self.surv_df1["event"],
-        )
+        if self.log_rank_valid:
+            log_rank_results = logrank_test(
+                self.surv_df0["time"],
+                self.surv_df1["time"],
+                event_observed_A=self.surv_df0["event"],
+                event_observed_B=self.surv_df1["event"],
+            )
+            p_value = float(log_rank_results.p_value)
+            test_statistic = float(log_rank_results.test_statistic)
+            if not np.isfinite(p_value) or not np.isfinite(test_statistic):
+                self.log_rank_valid = False
+                self.log_rank_invalid_reason = "non_finite_test_result"
+                p_value = float("nan")
+                test_statistic = float("nan")
+        else:
+            p_value = float("nan")
+            test_statistic = float("nan")
 
         log_rank_dict = {
-            "p_value": log_rank_results.p_value,
-            "p_value_label": get_p_value_label(log_rank_results.p_value),
+            "valid": self.log_rank_valid,
+            "invalid_reason": self.log_rank_invalid_reason,
+            "p_value": p_value,
+            "p_value_label": (
+                get_p_value_label(p_value) if self.log_rank_valid else "Not estimable"
+            ),
+            "test_statistic": test_statistic,
             "group0_n": self.surv_df0.shape[0],
             "group1_n": self.surv_df1.shape[0],
             "group0_median_survival": self.km0.descriptives["median_survival"],
@@ -392,7 +461,8 @@ class BinaryClassSurv:
         if not self.split_valid:
             if self.verbose:
                 logger.warning(
-                    f"[INVALID SPLIT] Group split not valid due to {self.split_invalid_reason}"
+                    "[INVALID SPLIT] Group split not valid due to %s",
+                    self.split_invalid_reason,
                 )
             cox_ph_dict = {
                 "split_valid": self.split_valid,
@@ -449,6 +519,17 @@ class BinaryClassSurv:
         row = summary.loc[row_names[0]]
         hr = row["exp(coef)"]
         hr_ci = [row["exp(coef) lower 95%"], row["exp(coef) upper 95%"]]
+        p_value = row["p"]
+        if not np.isfinite([hr, *hr_ci, p_value]).all():
+            self.cox_ph_valid = False
+            self.cox_ph_invalid_reason = "non_finite_fit_result"
+            self.split_valid = False
+            self.split_invalid_reason = self.cox_ph_invalid_reason
+            return {
+                "split_valid": False,
+                "split_invalid_reason": "non_finite_fit_result",
+                "p_value": float("nan"),
+            }
 
         cox_ph_dict = {
             # Guaranteed identical to self.baseline_label -- this is the
@@ -459,7 +540,7 @@ class BinaryClassSurv:
             "hr": {"raw": {"hr": hr, "ci_lower": hr_ci[0], "ci_upper": hr_ci[1]}},
             # "hr": hr,
             # "hr_ci": hr_ci,
-            "p_value": row["p"],
+            "p_value": p_value,
         }
         cox_ph_dict["hr"]["label"] = (
             f"Hazard ratio, {hr:.2f} " f"(95% CI, {hr_ci[0]:.2f} - {hr_ci[1]:.2f})"
