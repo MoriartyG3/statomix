@@ -5,8 +5,8 @@ from pathlib import Path
 import pandas as pd
 from fileverse.formats.excel import BaseExcel
 
-from statomix.analysis.survival import MultiClassSurv
-from statomix.analysis.survival.thresholds import MinimumPValue
+from statomix.analytics.datatypes.survival import MultiClassSurv
+from statomix.analytics.datatypes.survival.thresholds import MinimumPValue
 from statomix.reporting.excel.validation import add_datatype_list_validations
 from statomix.storage.atomic import atomic_output_path
 

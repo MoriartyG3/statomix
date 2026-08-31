@@ -1,4 +1,4 @@
-"""Numerical threshold analyses for survival endpoints."""
+"""Minimum-p-value scanning and maximally selected log-rank inference."""
 
 from .maxstat import (
     MaximallySelectedLogRank,
@@ -7,7 +7,7 @@ from .maxstat import (
     lausen_schumacher_p_value,
     logrank_scores,
 )
-from .minimum_p_value import MinimumPValue
+from .mpv import MinimumPValue
 from .scan import ThresholdCandidate, ThresholdScan
 
 __all__ = [

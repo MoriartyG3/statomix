@@ -1,4 +1,4 @@
-"""Compatibility façade for dataset analysis-config workbooks."""
+"""Dataset pipeline interface for analysis-config workbooks."""
 
 import shutil
 

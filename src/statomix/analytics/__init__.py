@@ -1,1 +1,1 @@
-"""Legacy analysis namespace retained for import compatibility."""
+"""Domain-organized statistical analytics."""

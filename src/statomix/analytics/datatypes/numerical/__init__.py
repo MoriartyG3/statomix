@@ -1,4 +1,4 @@
-"""Legacy numerical-analysis namespace."""
+"""Numerical-data analyses."""
 
 from .base import BaseNumerical
 from .normality import Normality

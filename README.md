@@ -1,9 +1,10 @@
 # Statomix
 
 Statomix is a human-in-the-loop statistical curation and analysis library for
-tabular biomedical data.  This branch keeps the established `Project`,
-`Dataset`, `Cleaner`, and `Analyzer` interaction while separating domain
-logic from persistence and report rendering.
+tabular biomedical data. The package keeps the established domain-facing
+`Project`, `Dataset`, `Cleaner`, `Analyzer`, and `analytics/datatypes`
+organization while separating reusable curation, storage, and reporting
+backends.
 
 ```python
 from statomix import Project
@@ -44,17 +45,20 @@ contract is in [MAXSTAT_VALIDATION.md](MAXSTAT_VALIDATION.md).
 
 ## Package layout
 
-- `statomix.core`: immutable contracts, errors, registries, and version
-  selection;
+- `statomix.analytics`: descriptive, normality, survival, threshold, and
+  multiplicity methods organized by datatype;
+- `statomix.pipelines`: Cleaner and Analyzer orchestration;
+- `statomix.dataset` and `statomix.project`: user-facing composition;
+- `statomix.core`: immutable contracts, errors, registries, and shared result
+  models;
 - `statomix.storage`: Zarr hierarchy, canonical paths, serializers, and
   atomic file writes;
 - `statomix.curation`: column, categorical, and survival curation;
-- `statomix.analysis`: descriptive, normality, survival, and multiplicity
-  methods;
-- `statomix.reporting`: presentation-only Excel renderers;
-- `statomix.workflows`: project/dataset orchestration;
-- legacy `analytics`, `pipelines`, `dataset`, and `project` modules remain as
-  compatibility facades.
+- `statomix.reporting`: presentation-only Excel renderers.
+
+There are no parallel `analysis` or `workflows` namespaces. See
+[NAMESPACE_MIGRATION.md](NAMESPACE_MIGRATION.md) if a notebook was written
+against an earlier refactor branch.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for dependency rules and
 [SCIENTIFIC_CHANGES.md](SCIENTIFIC_CHANGES.md) for the deliberately changed

@@ -1,1 +1,1 @@
-"""Legacy datatype-analysis namespace."""
+"""Analyses organized by source datatype."""

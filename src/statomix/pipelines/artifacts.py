@@ -1,4 +1,4 @@
-"""Compatibility façade for tabular artifact helpers."""
+"""Pipeline-facing tabular artifact helpers."""
 
 from statomix.core.tabular import frame_from_rows
 

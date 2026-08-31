@@ -1,4 +1,4 @@
-"""Legacy survival-curation namespace."""
+"""Survival-curation interfaces used by the cleaner pipeline."""
 
 from .surv_profiler import SurvivalDataTypes, SurvivalSemanticProfile
 from .surv_report import (

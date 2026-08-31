@@ -1,5 +1,23 @@
-"""Legacy survival-threshold namespace."""
+"""Numerical threshold analyses for survival endpoints."""
 
-from .mpv.mpv import MinimumPValue
+from .mpv import (
+    MaximallySelectedLogRank,
+    MaxstatMethod,
+    MaxstatResult,
+    MinimumPValue,
+    ThresholdCandidate,
+    ThresholdScan,
+    lausen_schumacher_p_value,
+    logrank_scores,
+)
 
-__all__ = ["MinimumPValue"]
+__all__ = [
+    "MaximallySelectedLogRank",
+    "MaxstatMethod",
+    "MaxstatResult",
+    "MinimumPValue",
+    "ThresholdCandidate",
+    "ThresholdScan",
+    "lausen_schumacher_p_value",
+    "logrank_scores",
+]

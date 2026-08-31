@@ -1,1 +1,1 @@
-"""Compatibility façade for threshold-analysis bases."""
+"""Shared threshold-analysis base interfaces."""

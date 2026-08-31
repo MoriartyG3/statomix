@@ -1,4 +1,4 @@
-"""Compatibility façade for survival curation artifacts."""
+"""Pipeline-facing survival curation artifacts."""
 
 from statomix.curation.survival.report import (
     SurvCatEdit,

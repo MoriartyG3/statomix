@@ -6,8 +6,9 @@ The test suite has four layers:
 2. scientific unit tests for p-value labeling, survival validation, normality
    reliability, Holm adjustment, unique cutoff partitions, CRAN maxstat
    reference values, and exhaustive permutation parity;
-3. compatibility tests that import the historical module paths and exercise
-   absent-datatype workflows;
+3. namespace and public-API tests that import canonical `analytics`,
+   `pipelines`, `dataset`, and `project` paths, reject the removed duplicate
+   namespaces, and exercise absent-datatype pipelines;
 4. artifact comparison between a run of `feat/noop-cleaner-contract` and the
    refactored branch.
 
@@ -27,4 +28,5 @@ them; review those files/columns explicitly.
 
 The maxstat-specific reference versions, assumptions, and check inventory are
 documented in `MAXSTAT_VALIDATION.md`. Conditional Monte Carlo tests use small,
-pinned seeds; exhaustive enumeration is limited to small fixtures.
+pinned seeds; exhaustive enumeration is limited to small fixtures. Runtime
+tests and builds are intentionally left for the package owner to execute.

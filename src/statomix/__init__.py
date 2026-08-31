@@ -12,7 +12,6 @@ except PackageNotFoundError:
     __version__ = "0+unknown"
 
 _MODULE_EXPORTS = {
-    "analysis",
     "analytics",
     "core",
     "curation",
@@ -21,7 +20,6 @@ _MODULE_EXPORTS = {
     "project",
     "reporting",
     "storage",
-    "workflows",
 }
 
 
@@ -29,11 +27,11 @@ def __getattr__(name: str) -> Any:
     if name in _MODULE_EXPORTS:
         return import_module(f"statomix.{name}")
     if name == "Project":
-        from statomix.workflows.project import Project
+        from statomix.project.project import Project
 
         return Project
     if name == "Dataset":
-        from statomix.workflows.dataset import Dataset
+        from statomix.dataset.dataset import Dataset
 
         return Dataset
     raise AttributeError(f"module 'statomix' has no attribute {name!r}")

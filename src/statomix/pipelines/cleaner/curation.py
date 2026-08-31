@@ -1,4 +1,4 @@
-"""Compatibility façade for dataframe curation."""
+"""Pipeline-facing dataframe curation service."""
 
 from statomix.curation.service import apply_curation_schemas
 

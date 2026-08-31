@@ -1,4 +1,4 @@
-"""Backward-compatible project workflow imports."""
+"""Top-level Statomix project interface."""
 
 from .project import Project
 

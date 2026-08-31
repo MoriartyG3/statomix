@@ -9,13 +9,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from statomix.analysis.multiplicity import (
+from statomix.analytics.datatypes.survival.thresholds.mpv.mpv import MinimumPValue
+from statomix.analytics.multiplicity import (
     SUPPORTED_CORRECTIONS,
     adjust_p_values,
     adjust_p_values_with_missing,
     normalize_correction_methods,
 )
-from statomix.analysis.survival.thresholds.minimum_p_value import MinimumPValue
 
 
 def _mpv_for_plotting() -> MinimumPValue:

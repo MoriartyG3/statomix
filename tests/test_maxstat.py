@@ -7,14 +7,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from statomix.analysis.survival.binary import BinaryClassSurv
-from statomix.analysis.survival.thresholds.maxstat import (
+from statomix.analytics.datatypes.survival.binary_class_surv import BinaryClassSurv
+from statomix.analytics.datatypes.survival.thresholds.mpv.maxstat import (
     MaximallySelectedLogRank,
     lausen_schumacher_p_value,
     logrank_scores,
 )
-from statomix.analysis.survival.thresholds.minimum_p_value import MinimumPValue
-from statomix.analysis.survival.thresholds.scan import ThresholdScan
+from statomix.analytics.datatypes.survival.thresholds.mpv.mpv import MinimumPValue
+from statomix.analytics.datatypes.survival.thresholds.mpv.scan import ThresholdScan
 
 
 def _survival_fixture() -> tuple[np.ndarray, np.ndarray, np.ndarray]:

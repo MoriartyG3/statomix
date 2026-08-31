@@ -1,4 +1,4 @@
-"""Compatibility façade for curated datatype inventories."""
+"""Pipeline-facing curated datatype inventory."""
 
 from statomix.curation.columns.inventory import DatatypeInventory
 

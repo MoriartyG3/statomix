@@ -1,4 +1,4 @@
-"""Compatibility façade for categorical metadata curation."""
+"""Pipeline-facing categorical metadata curation types."""
 
 from statomix.curation.categorical import CatEdit, CatMetaEditSchema, CatMetaReport
 

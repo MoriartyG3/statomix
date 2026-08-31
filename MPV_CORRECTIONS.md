@@ -98,7 +98,7 @@ for a sufficiently small sample is labeled exact.
 The inference engine can also be used without artifact orchestration:
 
 ```python
-from statomix.analysis.survival import MaximallySelectedLogRank
+from statomix.analytics.datatypes.survival import MaximallySelectedLogRank
 
 analysis = MaximallySelectedLogRank(
     predictor=frame["biomarker"],

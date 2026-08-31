@@ -35,7 +35,7 @@ from statomix.storage.hashing import sha256_file
 from statomix.storage.layout import StatomixLayout
 
 if TYPE_CHECKING:
-    from statomix.workflows.cleaner import Cleaner
+    from statomix.pipelines.cleaner.cleaner import Cleaner
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

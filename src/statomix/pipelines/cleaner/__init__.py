@@ -1,4 +1,4 @@
-"""Legacy Cleaner namespace."""
+"""Human-in-the-loop data-cleaning pipeline."""
 
 from .cleaner import Cleaner
 

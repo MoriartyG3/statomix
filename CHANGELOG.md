@@ -2,6 +2,10 @@
 
 ## 0.3.0
 
+- Restore the canonical `analytics`, `pipelines`, `dataset`, and `project`
+  implementation hierarchy while retaining the separated `curation`,
+  `storage`, `core`, and `reporting` backends.
+- Remove the unreleased duplicate `analysis` and `workflows` namespaces.
 - Split descriptive threshold construction from maximally selected log-rank
   inference.
 - Require explicit exploratory or inferential cutoff-analysis mode.

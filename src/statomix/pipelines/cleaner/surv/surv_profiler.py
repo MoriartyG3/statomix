@@ -1,4 +1,4 @@
-"""Compatibility façade for survival semantic profiling."""
+"""Pipeline-facing survival semantic profiling types."""
 
 from statomix.curation.survival.profiler import (
     SurvivalDataTypes,

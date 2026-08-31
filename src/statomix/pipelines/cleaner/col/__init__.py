@@ -1,4 +1,4 @@
-"""Legacy column-curation namespace."""
+"""Column-curation interfaces used by the cleaner pipeline."""
 
 from .col_profiler import ColProfile, ColProfiler
 from .col_report import ColEdit, ColEditSchema, ColReport

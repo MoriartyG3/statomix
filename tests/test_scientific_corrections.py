@@ -4,13 +4,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from statomix.analysis.descriptive.categorical import BaseCategorical
-from statomix.analysis.multiplicity import holm_adjust, holm_adjust_with_missing
-from statomix.analysis.survival.data import prepare_survival_data
-from statomix.analysis.survival.formatting import (
+from statomix.analytics.datatypes.categorical import BaseCategorical
+from statomix.analytics.datatypes.survival.data import prepare_survival_data
+from statomix.analytics.datatypes.survival.formatting import (
     get_p_value_label,
     interpret_hazard_ratio,
 )
+from statomix.analytics.multiplicity import holm_adjust, holm_adjust_with_missing
 
 
 def test_p_value_label_uses_unrounded_threshold() -> None:
@@ -40,7 +40,7 @@ def test_holm_adjustment_is_monotone_in_sorted_p_values() -> None:
 
 
 def test_mpv_multiplicity_metadata_uses_separate_finite_family_counts() -> None:
-    from statomix.analysis.survival.thresholds.minimum_p_value import (
+    from statomix.analytics.datatypes.survival.thresholds.mpv.mpv import (
         MinimumPValue,
     )
 
@@ -73,7 +73,7 @@ def test_mpv_multiplicity_metadata_uses_separate_finite_family_counts() -> None:
 
 
 def test_mpv_multiplicity_metadata_has_stable_empty_schema() -> None:
-    from statomix.analysis.survival.thresholds.minimum_p_value import (
+    from statomix.analytics.datatypes.survival.thresholds.mpv.mpv import (
         MinimumPValue,
     )
 
@@ -152,7 +152,7 @@ def test_invalid_survival_inputs_fail_explicitly(
 
 def test_raw_fitted_parameter_ks_is_excluded_from_consensus() -> None:
     pytest.importorskip("statsmodels")
-    from statomix.analysis.normality import Normality
+    from statomix.analytics.datatypes.numerical.normality import Normality
 
     normality = Normality(series=pd.Series(np.linspace(-2, 2, 60)))
     report = normality.get_normality_report(test_type="ks")

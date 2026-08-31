@@ -1,32 +1,36 @@
 # Statomix architecture
 
-The refactor follows the same principles used in Multiomix: explicit values,
-keyword-oriented internal calls, dependency-light contracts, one logging
-entry point, backend adapters at the edge, and compatibility at public
-boundaries.
+Statomix uses a domain-first public hierarchy and service-oriented backend
+boundaries. Package names follow the established user-facing organization;
+modularity does not create a second vocabulary for the same operation.
 
 ## Dependency direction
 
-- `core` is dependency-light and imports no Statomix implementation layer.
-- `storage` depends only on `core` plus backend libraries.
-- `analysis` owns statistical computation; `curation` may consume its
-  descriptive summaries.
-- `reporting` turns analysis and storage contracts into presentation files.
-- `workflows` compose all of those layers and retain the historical
-  notebook-facing methods.
+- `core` is dependency-light and imports no higher Statomix layer.
+- `storage` depends on `core` plus backend libraries.
+- `analytics` owns statistical computation in the established
+  `analytics/datatypes` hierarchy.
+- `curation` may consume analytics summaries but remains a separate domain
+  service.
+- `reporting` turns analytics and storage contracts into presentation files.
+- `pipelines` compose analytics, curation, reporting, and storage.
+- `dataset` and `project` provide the user-facing orchestration objects.
+
+The forbidden direction is equally important: `analytics`, `curation`, and
+`storage` do not import `pipelines`, `dataset`, or `project`.
 
 New analysis code does not own Excel presentation or workflow orchestration.
 The existing survival classes retain lazy validation helpers, and
-`MinimumPValue` retains its Zarr artifact adapter as a compatibility
-orchestrator. Pure candidate construction lives in `ThresholdScan`, and the
-scan-level inferential procedure lives in `MaximallySelectedLogRank`. Those
-components do not depend on Zarr, plotting, or workflows.
+`MinimumPValue` retains its Zarr artifact adapter as an analytics orchestrator.
+Pure candidate construction lives in `ThresholdScan`, and the scan-level
+inferential procedure lives in `MaximallySelectedLogRank`. Those components do
+not depend on project or pipeline orchestration.
 
 ## Stability boundary
 
 The following are compatibility requirements:
 
-- existing imports under `statomix.analytics`, `statomix.pipelines`,
+- canonical imports under `statomix.analytics`, `statomix.pipelines`,
   `statomix.dataset`, and `statomix.project`;
 - the public `Project`/`Dataset`/`Cleaner`/`Analyzer` method names and default
   call sequence;
@@ -47,23 +51,32 @@ create missing groups.  Write workflows retain explicit `require_group`
 semantics.  File artifacts that can be rendered off-store use a sibling
 temporary file followed by an atomic same-filesystem replacement.
 
-Curated-state inheritance is a distinct workflow boundary. It consumes an
+Curated-state inheritance is a distinct pipeline boundary. It consumes an
 immutable parent `curated_data` contract and writes independent target
 artifacts. Pure schema/row validation and profile reconstruction live in
 `statomix.curation.inheritance`; filesystem and Zarr orchestration live in
-`statomix.workflows.cleaner_inheritance`. Existing Cleaner methods are not
+`statomix.pipelines.cleaner.inheritance`. Existing Cleaner methods are not
 special-cased and their default behavior is unchanged.
 
 ## Extension points
 
-New statistical operations belong in `statomix.analysis` and can implement the
-small `Analysis` protocol.  They can be registered through `AnalysisRegistry`
-without changing workflow orchestration.  New storage or reporting formats
+New statistical operations belong in the appropriate
+`statomix.analytics.datatypes` domain and can implement the small `Analysis`
+protocol. They can be registered through `AnalysisRegistry` without changing
+pipeline orchestration. New storage or reporting formats
 should be adapters that consume domain results instead of being embedded in
 the statistical classes.
 
 Row-wise p-value corrections follow the same pattern: correction definitions
-and backend mappings live in `statomix.analysis.multiplicity`, while the MPV
+and backend mappings live in `statomix.analytics.multiplicity`, while the MPV
 orchestrator consumes the registry for exploratory sensitivity output. The
 maximally selected log-rank global p-value is a separate statistical procedure
 and is intentionally not registered as a generic correction.
+
+## Namespace ownership rule
+
+Each concept has one implementation owner. Compatibility adapters are allowed
+only when a genuinely separate backend owns the implementation—for example,
+`pipelines.base` exposing storage-backed versioning or historical Cleaner
+curation imports exposing the `curation` service. A façade must never redirect
+`analytics` to a second analysis tree or `pipelines` to a second workflow tree.

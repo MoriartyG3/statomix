@@ -1,4 +1,4 @@
-"""Compatibility façade for versioned pipeline storage."""
+"""Pipeline-facing interface for versioned storage."""
 
 from statomix.storage.versioning import BasePipeline
 

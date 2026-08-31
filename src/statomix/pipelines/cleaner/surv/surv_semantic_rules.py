@@ -1,4 +1,4 @@
-"""Compatibility façade for survival semantic rules."""
+"""Pipeline-facing survival semantic rules."""
 
 from statomix.curation.survival.semantic_rules import (
     SURVIVAL_DATETIME_FROM_REGEX,

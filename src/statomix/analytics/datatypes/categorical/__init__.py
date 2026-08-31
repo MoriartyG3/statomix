@@ -1,4 +1,4 @@
-"""Legacy categorical-analysis namespace."""
+"""Categorical-data analyses."""
 
 from .base import BaseCategorical
 

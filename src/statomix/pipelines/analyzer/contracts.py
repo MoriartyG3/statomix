@@ -1,4 +1,4 @@
-"""Compatibility façade for analyzer result schemas."""
+"""Dataset pipeline interface for analyzer result schemas."""
 
 from statomix.core.analysis_results import (
     CATEGORICAL_SUMMARY_SCHEMA,

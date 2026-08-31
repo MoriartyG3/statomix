@@ -1,1 +1,1 @@
-"""Legacy pipeline namespace retained as compatibility façades."""
+"""Cleaner and analyzer orchestration pipelines."""

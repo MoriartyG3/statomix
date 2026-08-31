@@ -1,4 +1,4 @@
-"""Compatibility façade for column reports and edit schemas."""
+"""Pipeline-facing column reports and edit schemas."""
 
 from statomix.curation.columns.report import ColEdit, ColEditSchema, ColReport
 

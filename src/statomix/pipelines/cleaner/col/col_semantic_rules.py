@@ -1,4 +1,4 @@
-"""Compatibility façade for column semantic rules."""
+"""Pipeline-facing column semantic rules."""
 
 from statomix.curation.columns.semantic_rules import (
     DATETIME_REGEX,

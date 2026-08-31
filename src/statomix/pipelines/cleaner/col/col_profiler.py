@@ -1,4 +1,4 @@
-"""Compatibility façade for column profiling."""
+"""Pipeline-facing column profiling types."""
 
 from statomix.curation.columns.profiler import (
     ColProfile,

@@ -1,4 +1,4 @@
-"""Compatibility façade for project analysis-config rendering."""
+"""Project pipeline interface for analysis-config rendering."""
 
 from statomix.reporting.excel.project_analysis_config import (
     KEY_SEP,

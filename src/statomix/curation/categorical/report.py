@@ -12,7 +12,7 @@ from fileverse.formats.excel import BaseExcel
 from openpyxl import load_workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from statomix.analysis.descriptive.categorical import BaseCategorical
+from statomix.analytics.datatypes.categorical import BaseCategorical
 from statomix.core.tabular import frame_from_rows
 from statomix.curation.columns.semantic_rules import DataTypes
 
