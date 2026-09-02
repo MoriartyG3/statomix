@@ -29,11 +29,13 @@ class Dataset(BaseDataset):
         dataset_name: str,
         root_group: Any,
         df: pd.DataFrame | None = None,
+        display_label: str | None = None,
     ) -> None:
         super().__init__(
             dataset_name=dataset_name,
             root_group=root_group,
             df=df,
+            display_label=display_label,
         )
         self.cleaner = Cleaner(
             df_path=self.paths["df"]["source"],

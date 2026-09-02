@@ -10,6 +10,7 @@ from fileverse.formats.excel import BaseExcel
 from fileverse.formats.zarr import BaseZARR
 from pandas.testing import assert_frame_equal
 
+from statomix.dataset.base import normalize_display_label
 from statomix.dataset.dataset import Dataset
 from statomix.logging import get_logger
 from statomix.project.analyzer.analyzer import Analyzer
@@ -66,7 +67,13 @@ class Project:
         self,
         df: pd.DataFrame | None,
         dataset_name: str,
+        display_label: str | None = None,
     ) -> Dataset | None:
+
+        resolved_display_label = normalize_display_label(
+            dataset_name if display_label is None else display_label
+        )
+
         project_datasets_meta = dict(self.groups["root"].attrs.get("datasets", {}))
         existing_meta = project_datasets_meta.get(dataset_name)
         if existing_meta and existing_meta.get("created_successfully"):
@@ -80,6 +87,7 @@ class Project:
             dataset = Dataset(
                 df=df,
                 dataset_name=dataset_name,
+                display_label=resolved_display_label,
                 root_group=self.groups["datasets_root"],
             )
         except Exception as exc:
