@@ -29,6 +29,9 @@ from statomix.curation.survival.report import (
 )
 from statomix.logging import get_logger
 from statomix.storage.atomic import atomic_output_path
+from statomix.storage.parquet_metadata import (
+    write_dataframe_with_category_ranks,
+)
 from statomix.storage.versioning import BasePipeline
 
 logger = get_logger(name="cleaner")
@@ -967,6 +970,7 @@ class Cleaner(BasePipeline):
             cat_meta_edit_schema=cat_meta_edit_schema,
             surv_cat_meta_edit_schema=surv_cat_meta_edit_schema,
         )
+        category_ranks = cat_meta_edit_schema.category_ranks
 
         with (
             atomic_output_path(destination=curated_df_path) as temporary_df,
@@ -977,12 +981,28 @@ class Cleaner(BasePipeline):
                 destination=curated_col_profiles_path
             ) as temporary_col_profiles,
         ):
-            df.to_parquet(path=temporary_df)
+            # df.to_parquet(path=temporary_df)
+            rank_metadata = write_dataframe_with_category_ranks(
+                df=df,
+                path=temporary_df,
+                category_ranks=category_ranks,
+            )
             surv_pairs.save(path=temporary_surv_pairs)
             self.col_report.save_col_profiles(
                 col_profiles=col_profiles_curated,
                 path=temporary_col_profiles,
             )
+        config_meta = dict(
+            config_group.attrs.get(
+                "meta",
+                {},
+            )
+        )
+
+        config_meta["categorical_rank_metadata"] = rank_metadata
+
+        config_group.attrs["meta"] = config_meta
+        group_bundle["config"]["meta"] = config_meta
 
         self._record_procedure_status(
             group_bundle=group_bundle,

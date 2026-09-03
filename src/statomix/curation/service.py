@@ -18,8 +18,14 @@ def _get_category_rename_mapping(category_edits):
         for schema in column_edits.values():
             if schema.category is not None and schema.rename_to is not None:
                 rename_mapping[col_name][schema.category] = schema.rename_to
+            # elif schema.remove:
+            #    rename_mapping[col_name][schema.category] = pd.NA
             elif schema.remove:
                 rename_mapping[col_name][schema.category] = pd.NA
+            elif getattr(schema, "rank", None) is not None:
+                # Ranks are metadata only. They must never replace values
+                # in the curated DataFrame.
+                continue
             else:
                 raise ValueError(
                     f"Column {col_name} has an edit with neither a rename "

@@ -16,6 +16,11 @@ from statomix.analytics.datatypes.categorical import BaseCategorical
 from statomix.core.tabular import frame_from_rows
 from statomix.curation.columns.semantic_rules import DataTypes
 
+from .ranking import (
+    build_category_rank_mapping,
+    parse_optional_rank,
+)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CatEdit:
@@ -23,6 +28,7 @@ class CatEdit:
     category: str
     rename_to: str | None
     remove: bool
+    rank: int | None = None
 
     def to_dict(self):
         return {
@@ -30,6 +36,7 @@ class CatEdit:
             "category": self.category,
             "rename_to": self.rename_to,
             "remove": self.remove,
+            "rank": self.rank,
         }
 
     @staticmethod
@@ -41,12 +48,17 @@ class CatEdit:
                 data.get("rename_to") if pd.notna(data.get("rename_to")) else None
             ),
             remove=bool(data.get("remove", False)),
+            rank=parse_optional_rank(
+                data.get("rank"),
+                col_name=data["col_name"],
+                category=data["category"],
+            ),
         )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CatMetaEditSchema:
-    cat_edits: Mapping[str, Mapping[str, CatEdit]]
+    cat_edits: Mapping[str, Mapping[object, CatEdit]]
 
     def __post_init__(self) -> None:
         nested = {
@@ -60,6 +72,7 @@ class CatMetaEditSchema:
         "category": "object",
         "rename_to": "object",
         "remove": "boolean",
+        "rank": "Int64",
     }
 
     @classmethod
@@ -73,6 +86,14 @@ class CatMetaEditSchema:
     @property
     def is_empty(self) -> bool:
         return self.edit_count == 0
+
+    @property
+    def category_ranks(self) -> dict[str, dict[str, int]]:
+        """Final category labels mapped to validated metadata-only ranks."""
+
+        return build_category_rank_mapping(
+            cat_edits=self.cat_edits,
+        )
 
     def save(self, path: Path):
         categorical_rows = []
@@ -92,7 +113,7 @@ class CatMetaEditSchema:
     def load(path: Path) -> "CatMetaEditSchema":
         cat_df = pd.read_parquet(path=path)
 
-        cat_edits: dict[str, dict[str, CatEdit]] = defaultdict(dict)
+        cat_edits: dict[str, dict[object, CatEdit]] = defaultdict(dict)
 
         for _, row in cat_df.iterrows():
             edit = CatEdit.from_dict(row.to_dict())
@@ -171,12 +192,13 @@ class CatMetaReport:
             distribution_df["col_name"] = col_name
             distribution_df["rename_to"] = ""
             distribution_df["remove"] = ""
+            distribution_df["rank"] = ""
 
             distribution_dfs.append(distribution_df)
 
         if not distribution_dfs:
             return pd.DataFrame(
-                columns=["rename_to", "remove", "count", "percentage"],
+                columns=["rename_to", "remove", "rank", "count", "percentage"],
                 index=pd.MultiIndex.from_arrays(
                     arrays=[[], []],
                     names=["col_name", "category"],
@@ -191,9 +213,15 @@ class CatMetaReport:
         other_cols = [
             c
             for c in final_distribution_df.columns
-            if c not in ["col_name", "category", "rename_to", "remove"]
+            if c not in ["col_name", "category", "rename_to", "remove", "rank"]
         ]
-        ordered_cols = ["col_name", "category", "rename_to", "remove"] + other_cols
+        ordered_cols = [
+            "col_name",
+            "category",
+            "rename_to",
+            "remove",
+            "rank",
+        ] + other_cols
         final_distribution_df = final_distribution_df[ordered_cols]
 
         final_distribution_df = final_distribution_df.set_index(
@@ -209,11 +237,17 @@ class CatMetaReport:
 
         return validation_df
 
-    def _add_categorical_validation(self, report_path, worksheet_name):
+    def _add_categorical_validation(
+        self,
+        report_path,
+        worksheet_name,
+    ):
         workbook = load_workbook(filename=report_path)
         worksheet = workbook[worksheet_name]
 
-        col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
+        col_map = BaseExcel.get_worksheet_col_map(
+            worksheet=worksheet,
+        )
 
         validation_remove = DataValidation(
             type="list",
@@ -222,37 +256,80 @@ class CatMetaReport:
             showErrorMessage=True,
             errorStyle="stop",
             errorTitle="Invalid Input",
-            error="Please choose only 'True' or 'False' from the dropdown list.",
+            error=("Please choose only 'True' or 'False' " "from the dropdown list."),
         )
 
         worksheet.add_data_validation(validation_remove)
 
         validation_remove.add(
-            f"{col_map["remove"]}2:{col_map["remove"]}{worksheet.max_row}"
+            f"{col_map['remove']}2:" f"{col_map['remove']}{worksheet.max_row}"
+        )
+
+        validation_rank = DataValidation(
+            type="whole",
+            operator="greaterThanOrEqual",
+            formula1="0",
+            allow_blank=True,
+            showErrorMessage=True,
+            errorStyle="stop",
+            errorTitle="Invalid Rank",
+            error=("Enter a whole-number rank of zero or greater, " "or leave blank."),
+        )
+
+        worksheet.add_data_validation(validation_rank)
+
+        validation_rank.add(
+            f"{col_map['rank']}2:" f"{col_map['rank']}{worksheet.max_row}"
         )
 
         workbook.save(filename=report_path)
 
     @staticmethod
     def _get_cat_edits(cat_meta_df):
-        edits: dict[str, CatEdit] = defaultdict(dict)
+        all_rows: dict[str, dict[object, CatEdit]] = defaultdict(dict)
+
         for (col_name, category), row in cat_meta_df.iterrows():
             rename_to = None
+
             if pd.notna(row["rename_to"]):
                 new_name = str(row["rename_to"]).strip()
+
                 if new_name:
                     rename_to = new_name
 
             remove = False
+
             if pd.notna(row["remove"]):
                 remove = bool(row["remove"])
 
-            if not (remove or rename_to is not None):
-                continue
-
-            edits[col_name][category] = CatEdit(
-                col_name=col_name, category=category, rename_to=rename_to, remove=remove
+            rank = parse_optional_rank(
+                row.get("rank"),
+                col_name=col_name,
+                category=category,
             )
+
+            all_rows[col_name][category] = CatEdit(
+                col_name=col_name,
+                category=category,
+                rename_to=rename_to,
+                remove=remove,
+                rank=rank,
+            )
+
+        build_category_rank_mapping(
+            cat_edits=all_rows,
+        )
+
+        edits: dict[str, dict[object, CatEdit]] = defaultdict(dict)
+
+        for col_name, column_rows in all_rows.items():
+            for category, edit in column_rows.items():
+                is_actionable = (
+                    edit.remove or edit.rename_to is not None or edit.rank is not None
+                )
+
+                if is_actionable:
+                    edits[col_name][category] = edit
 
         return edits
 
