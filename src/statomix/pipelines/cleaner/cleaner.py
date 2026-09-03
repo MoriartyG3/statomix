@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Collection, Mapping
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,9 @@ from statomix.curation.columns import (
     DatatypeInventory,
     DataTypes,
 )
+from statomix.curation.columns.audit import (
+    DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD,
+)
 from statomix.curation.survival import SurvivalDataTypes
 from statomix.curation.survival.report import (
     SurvCatMetaEditSchema,
@@ -35,6 +39,23 @@ from statomix.storage.parquet_metadata import (
 from statomix.storage.versioning import BasePipeline
 
 logger = get_logger(name="cleaner")
+
+
+def calculate_file_sha256(path: Path) -> str:
+    """Calculate an artifact hash without modifying the file."""
+
+    digest = sha256()
+
+    with path.open("rb") as file_handle:
+        while True:
+            chunk = file_handle.read(1024 * 1024)
+
+            if not chunk:
+                break
+
+            digest.update(chunk)
+
+    return digest.hexdigest()
 
 
 class Cleaner(BasePipeline):
@@ -163,6 +184,7 @@ class Cleaner(BasePipeline):
         config_name=None,
         create_new=False,
     ):
+        """Create the integrated column report and audit artifacts."""
 
         group_bundle = self._get_group_bundle(
             version=version,
@@ -174,44 +196,121 @@ class Cleaner(BasePipeline):
         )
 
         version_meta = group_bundle["version"]["meta"]
-        version = version_meta["version"]
+        resolved_version = version_meta["version"]
 
         config_meta = group_bundle["config"]["meta"]
-        config_version = config_meta["version"]
+        resolved_config_version = config_meta["version"]
 
         base_path = group_bundle["version"]["path"]
 
         col_report_path = base_path / "col_report.xlsx"
         col_profiles_path = base_path / "col_profiles.parquet"
-        if col_report_path.exists() and not create_new:
+        col_audit_path = base_path / "col_audit.parquet"
+        col_value_counts_path = base_path / "col_value_counts.parquet"
+
+        user_config_path = self.paths["user_config"] / (
+            f"{self.dataset_name.replace(' ', '_')}"
+            f"_col_report_version{resolved_version}"
+            f"_config{resolved_config_version}.xlsx"
+        )
+
+        core_artifacts = {
+            "column report": col_report_path,
+            "column profiles": col_profiles_path,
+            "column audit": col_audit_path,
+            "column value counts": (col_value_counts_path),
+        }
+
+        artifact_exists = {
+            artifact_name: artifact_path.exists()
+            for artifact_name, artifact_path in core_artifacts.items()
+        }
+
+        if all(artifact_exists.values()) and not create_new:
+            if not user_config_path.exists():
+                shutil.copy2(
+                    src=col_report_path,
+                    dst=user_config_path,
+                )
+
             logger.info(
-                f"Column report already exists for version {version}. Set create_new=True to create a new one."
+                "Integrated column report already exists "
+                "for version:%s and config_version:%s.",
+                resolved_version,
+                resolved_config_version,
             )
             return
+
+        if any(artifact_exists.values()) and not create_new:
+            present_artifacts = [
+                artifact_name
+                for artifact_name, exists in artifact_exists.items()
+                if exists
+            ]
+            missing_artifacts = [
+                artifact_name
+                for artifact_name, exists in artifact_exists.items()
+                if not exists
+            ]
+
+            raise RuntimeError(
+                "Incomplete column-report artifact set for "
+                f"version:{resolved_version} and "
+                f"config_version:{resolved_config_version}.\n"
+                f"Present: {present_artifacts}\n"
+                f"Missing: {missing_artifacts}\n"
+                "Create a new Cleaner version instead of "
+                "repairing this version in place."
+            )
 
         df = pd.read_parquet(self.df_path)
 
         self.col_report.create_col_profiles(
-            df=df, path=col_profiles_path, replace=create_new
+            df=df,
+            path=col_profiles_path,
+            replace=create_new,
         )
+
+        source_sha256 = calculate_file_sha256(path=self.df_path)
 
         self.col_report.create_col_report(
             df=df,
             report_path=col_report_path,
             profiles_path=col_profiles_path,
-            # password="statomix",
-            # lock=True,
+            audit_profiles_path=col_audit_path,
+            value_frequencies_path=(col_value_counts_path),
+            value_count_unique_threshold=(DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD),
+            report_metadata={
+                "dataset_name": self.dataset_name,
+                "cleaner_version": resolved_version,
+                "cleaner_config_version": (resolved_config_version),
+                "source_row_count": len(df),
+                "source_column_count": len(df.columns),
+                "source_path": str(self.df_path),
+                "source_sha256": source_sha256,
+            },
             replace=create_new,
         )
 
-        user_config_path = (
-            self.paths["user_config"]
-            / f"{self.dataset_name.replace(" ", "_")}_col_report_version{version}_config{config_version}.xlsx"
+        shutil.copy2(
+            src=col_report_path,
+            dst=user_config_path,
         )
-        shutil.copy2(src=col_report_path, dst=user_config_path)
 
         version_meta["col_report_exists"] = True
+        version_meta["col_audit_exists"] = True
+        version_meta["col_value_counts_exists"] = True
+        version_meta["value_count_unique_threshold"] = (
+            DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD
+        )
+
         group_bundle["version"]["group"].attrs["meta"] = version_meta
+
+        logger.info(
+            "Created integrated column report for " "version:%s and config_version:%s.",
+            resolved_version,
+            resolved_config_version,
+        )
 
     def create_col_edit_schema(self, version=None):
 

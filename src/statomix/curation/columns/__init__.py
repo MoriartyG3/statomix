@@ -6,6 +6,22 @@ from importlib import import_module
 from typing import Any
 
 _EXPORTS = {
+    "ColumnAudit": (
+        "statomix.curation.columns.audit",
+        "ColumnAudit",
+    ),
+    "ColumnAuditProfile": (
+        "statomix.curation.columns.audit",
+        "ColumnAuditProfile",
+    ),
+    "ColumnValueFrequency": (
+        "statomix.curation.columns.audit",
+        "ColumnValueFrequency",
+    ),
+    "DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD": (
+        "statomix.curation.columns.audit",
+        "DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD",
+    ),
     "ColEdit": ("statomix.curation.columns.report", "ColEdit"),
     "ColEditSchema": ("statomix.curation.columns.report", "ColEditSchema"),
     "ColProfile": ("statomix.curation.columns.profiler", "ColProfile"),
@@ -34,6 +50,10 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = (
+    "ColumnAudit",
+    "ColumnAuditProfile",
+    "ColumnValueFrequency",
+    "DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD",
     "ColEdit",
     "ColEditSchema",
     "ColProfile",

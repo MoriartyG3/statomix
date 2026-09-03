@@ -17,58 +17,125 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from statomix.core.tabular import frame_from_rows
 from statomix.logging import get_logger
 
+from .audit import ColumnAudit, ColumnValueFrequency
 from .profiler import ColProfile, ColProfiler
 from .semantic_rules import DataTypes
 
 logger = get_logger(name="col_report")
 
-SHEET_CELL_MAP = {
-    DataTypes.IDENTIFIER.value: {
-        "col_name": "A",
-        "change_col_name": "B",
-        "inferred_datatype": "C",
-        "change_datatype": "D",
-        "remove": "E",
-    },
-    DataTypes.NUMERICAL.value: {
-        "col_name": "A",
-        "change_col_name": "B",
-        # "units": 'C',
-        "inferred_datatype": "C",
-        "change_datatype": "D",
-        "remove": "E",
-    },
-    DataTypes.CATEGORICAL.value: {
-        "col_name": "A",
-        "change_col_name": "B",
-        "inferred_datatype": "C",
-        "change_datatype": "D",
-        "remove": "E",
-    },
-    DataTypes.SURVIVAL.value: {
-        "col_name": "A",
-        "change_col_name": "B",
-        # "units": 'C',
-        "inferred_datatype": "C",
-        "change_datatype": "D",
-        "remove": "E",
-    },
-    DataTypes.DATETIME.value: {
-        "col_name": "A",
-        "change_col_name": "B",
-        "inferred_datatype": "C",
-        "change_datatype": "D",
-        "remove": "E",
-        # "format": 'F',
-    },
-    DataTypes.FREE_TEXT.value: {
-        "col_name": "A",
-        "change_col_name": "B",
-        "inferred_datatype": "C",
-        "change_datatype": "D",
-        "remove": "E",
-    },
+COLUMN_REPORT_FIELDS = (
+    "col_name",
+    "change_col_name",
+    "inferred_datatype",
+    "change_datatype",
+    "remove",
+    "source_dtype",
+    "missing_n",
+    "missing_pct",
+    "unique_n",
+    "num_conversion_pct",
+    "numeric_n",
+    "nonnumeric_n",
+    "minimum",
+    "q1",
+    "median",
+    "q3",
+    "maximum",
+)
+
+AUDIT_FIELD_NAMES = (
+    "source_dtype",
+    "missing_n",
+    "missing_pct",
+    "unique_n",
+    "num_conversion_pct",
+    "numeric_n",
+    "nonnumeric_n",
+    "minimum",
+    "q1",
+    "median",
+    "q3",
+    "maximum",
+)
+
+COMMON_SHEET_CELL_MAP = {
+    field_name: get_column_letter(index)
+    for index, field_name in enumerate(
+        COLUMN_REPORT_FIELDS,
+        start=1,
+    )
 }
+
+SHEET_CELL_MAP = {datatype.value: dict(COMMON_SHEET_CELL_MAP) for datatype in DataTypes}
+
+EDITABLE_DATATYPE_SHEETS = frozenset(datatype.value for datatype in DataTypes)
+
+READ_ONLY_AUDIT_SHEETS = frozenset(
+    {
+        "Value Counts",
+        "Report Metadata",
+    }
+)
+
+HIDDEN_SUPPORT_SHEETS = frozenset(
+    {
+        "__ValidationRanges__",
+    }
+)
+
+PROTECTED_COL_NAMES = (
+    "col_name",
+    "inferred_datatype",
+    *AUDIT_FIELD_NAMES,
+)
+
+# SHEET_CELL_MAP = {
+#     DataTypes.IDENTIFIER.value: {
+#         "col_name": "A",
+#         "change_col_name": "B",
+#         "inferred_datatype": "C",
+#         "change_datatype": "D",
+#         "remove": "E",
+#     },
+#     DataTypes.NUMERICAL.value: {
+#         "col_name": "A",
+#         "change_col_name": "B",
+#         # "units": 'C',
+#         "inferred_datatype": "C",
+#         "change_datatype": "D",
+#         "remove": "E",
+#     },
+#     DataTypes.CATEGORICAL.value: {
+#         "col_name": "A",
+#         "change_col_name": "B",
+#         "inferred_datatype": "C",
+#         "change_datatype": "D",
+#         "remove": "E",
+#     },
+#     DataTypes.SURVIVAL.value: {
+#         "col_name": "A",
+#         "change_col_name": "B",
+#         # "units": 'C',
+#         "inferred_datatype": "C",
+#         "change_datatype": "D",
+#         "remove": "E",
+#     },
+#     DataTypes.DATETIME.value: {
+#         "col_name": "A",
+#         "change_col_name": "B",
+#         "inferred_datatype": "C",
+#         "change_datatype": "D",
+#         "remove": "E",
+#         # "format": 'F',
+#     },
+#     DataTypes.FREE_TEXT.value: {
+#         "col_name": "A",
+#         "change_col_name": "B",
+#         "inferred_datatype": "C",
+#         "change_datatype": "D",
+#         "remove": "E",
+#     },
+# }
 
 # EDITABLE_COL_NAMES = {
 #     "change_col_name",
@@ -77,10 +144,10 @@ SHEET_CELL_MAP = {
 #     "format",
 # }
 
-PROTECTED_COL_NAMES = [
-    "col_name",
-    "inferred_datatype",
-]
+# PROTECTED_COL_NAMES = [
+#     "col_name",
+#     "inferred_datatype",
+# ]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -185,24 +252,55 @@ class ColReport:
         df: pd.DataFrame,
         report_path: Path,
         profiles_path: Path,
-        replace,
+        replace: bool,
         rename_mapping=None,
-    ):
+        audit_profiles_path: Path | None = None,
+        value_frequencies_path: Path | None = None,
+        value_count_unique_threshold: int = 30,
+        report_metadata: Mapping[str, object] | None = None,
+    ) -> None:
+        """Create the integrated editable and diagnostic report."""
+
         if report_path.suffix.lower() != ".xlsx":
             raise ValueError("report_path must have an .xlsx suffix")
+
+        if (audit_profiles_path is None) != (value_frequencies_path is None):
+            raise ValueError(
+                "audit_profiles_path and "
+                "value_frequencies_path must either both be "
+                "provided or both be omitted"
+            )
+
         if report_path.exists() and not replace:
             logger.warning(
-                f"Column report already exists at:\n{report_path}\nSet replace=True to replace."
+                "Column report already exists at:\n"
+                f"{report_path}\n"
+                "Set replace=True to replace."
             )
             return
 
         col_profiles = self.load_col_profiles(path=profiles_path)
 
+        column_audit = ColumnAudit.from_dataframe(
+            df=df,
+            col_profiles=col_profiles,
+            value_count_unique_threshold=(value_count_unique_threshold),
+        )
+
+        if audit_profiles_path is not None and value_frequencies_path is not None:
+            column_audit.save(
+                profiles_path=audit_profiles_path,
+                value_frequencies_path=(value_frequencies_path),
+            )
+
         self._save_col_report(
             path=report_path,
             col_profiles=col_profiles,
+            column_audit=column_audit,
             rename_mapping=rename_mapping,
+            report_metadata=report_metadata,
         )
+
         BaseExcel.format_cell_length(path=report_path)
         self._add_validation_datatype(report_path=report_path)
 
@@ -214,7 +312,11 @@ class ColReport:
                 rename_mapping=rename_mapping,
             )
 
-        self._protect_cols(report_path=report_path, password="statomix", lock=True)
+        self._protect_cols(
+            report_path=report_path,
+            password="statomix",
+            lock=True,
+        )
 
     def create_col_profiles(self, df, path, replace):
         if path.exists() and not replace:
@@ -329,64 +431,119 @@ class ColReport:
 
         return validation_df
 
-    def _save_col_report(self, path, col_profiles, rename_mapping=None):
-        """
-        Creates the raw col_report without validation or formatting
-        """
-        # datatype_map = {
-        #     datatype: [
-        #         profile.col_name
-        #         for profile in col_profiles.values()
-        #         if profile.col_type == datatype
-        #     ]
-        #     for datatype in DataTypes
-        # }
+    def _save_col_report(
+        self,
+        *,
+        path: Path,
+        col_profiles,
+        column_audit: ColumnAudit,
+        rename_mapping=None,
+        report_metadata: Mapping[str, object] | None = None,
+    ) -> None:
+        """Render editable and diagnostic worksheets."""
 
         datatype_map = defaultdict(list)
 
         for profile in col_profiles.values():
             datatype_map[profile.col_type].append(profile.col_name)
 
-        # profiled_cols_n = sum(len(col_names) for col_names in sheet_map.values())
-        # assert profiled_cols_n == len(df.columns)
-
-        with pd.ExcelWriter(path=path, engine="openpyxl") as writer:
+        with pd.ExcelWriter(
+            path=path,
+            engine="openpyxl",
+        ) as writer:
             for datatype, col_names in datatype_map.items():
-                if not col_names:
+                if datatype is None or not col_names:
                     continue
-                schema = SHEET_CELL_MAP[datatype.value]
-                rows = []
-                for col_name in col_names:
-                    target_name = (
-                        rename_mapping.get(col_name, col_name)
-                        if rename_mapping
-                        else col_name
-                    )
-                    profile = col_profiles[target_name]
 
-                    row_data = {}
-                    for col_header in schema:
-                        if col_header == "col_name":
-                            row_data[col_header] = profile.col_name
-                        elif col_header == "inferred_datatype":
-                            row_data[col_header] = profile.col_type.value
-                        else:
-                            row_data[col_header] = ""  # Leave blank for user input
+                rows = []
+
+                for col_name in col_names:
+                    profile = col_profiles[col_name]
+                    audit_profile = column_audit.profiles[col_name]
+                    audit_record = audit_profile.to_dict()
+
+                    row_data = {field_name: "" for field_name in COLUMN_REPORT_FIELDS}
+
+                    row_data["col_name"] = profile.col_name
+                    row_data["inferred_datatype"] = profile.col_type.value
+
+                    for field_name in AUDIT_FIELD_NAMES:
+                        field_value = audit_record[field_name]
+                        row_data[field_name] = (
+                            "" if field_value is None else field_value
+                        )
 
                     rows.append(row_data)
-                df_sheet = pd.DataFrame(data=rows)
-                sheet_name = datatype.value[:31]
-                df_sheet.to_excel(
-                    excel_writer=writer, sheet_name=sheet_name, index=False
+
+                datatype_df = pd.DataFrame(
+                    data=rows,
+                    columns=COLUMN_REPORT_FIELDS,
                 )
+
+                datatype_df.to_excel(
+                    excel_writer=writer,
+                    sheet_name=datatype.value[:31],
+                    index=False,
+                )
+
+            frequency_rows = [
+                frequency.to_dict() for frequency in column_audit.value_frequencies
+            ]
+
+            frequencies_df = frame_from_rows(
+                rows=frequency_rows,
+                schema=(ColumnValueFrequency.PARQUET_SCHEMA),
+            )
+
+            frequencies_df.to_excel(
+                excel_writer=writer,
+                sheet_name="Value Counts",
+                index=False,
+            )
+
+            metadata = {
+                "report_schema_version": 1,
+                "source_column_count": len(column_audit.profiles),
+                "value_count_unique_threshold": (
+                    column_audit.value_count_unique_threshold
+                ),
+                "value_frequency_rule": (
+                    "All inferred categorical columns and "
+                    "all columns with unique_n less than or "
+                    "equal to the configured threshold"
+                ),
+            }
+
+            if report_metadata is not None:
+                metadata.update(report_metadata)
+
+            metadata_rows = [
+                {
+                    "property": property_name,
+                    "value": ("" if property_value is None else str(property_value)),
+                }
+                for property_name, property_value in metadata.items()
+            ]
+
+            metadata_df = pd.DataFrame(
+                data=metadata_rows,
+                columns=["property", "value"],
+            )
+
+            metadata_df.to_excel(
+                excel_writer=writer,
+                sheet_name="Report Metadata",
+                index=False,
+            )
 
             validation_df = self._get_validation_df()
 
             validation_df.to_excel(
-                excel_writer=writer, sheet_name="__ValidationRanges__", index=False
+                excel_writer=writer,
+                sheet_name="__ValidationRanges__",
+                index=False,
             )
 
-            # writer.sheets["__ValidationRanges__"].sheet_state = "hidden"
             writer.sheets["__ValidationRanges__"].sheet_state = "veryHidden"
 
     def _add_validation_datatype(self, report_path):
@@ -394,7 +551,7 @@ class ColReport:
         total_datatypes = len(DataTypes)
 
         for worksheet in workbook.worksheets:
-            if worksheet.title == "__ValidationRanges__":
+            if worksheet.title not in EDITABLE_DATATYPE_SHEETS:
                 continue
             max_row = worksheet.max_row
             if max_row < 2:
@@ -486,43 +643,59 @@ class ColReport:
 
         workbook.save(filename=report_path)
 
-    def _protect_cols(self, report_path: Path, lock: bool, password: str | None = None):
+    def _protect_cols(
+        self,
+        report_path: Path,
+        lock: bool,
+        password: str | None = None,
+    ) -> None:
+        """Protect identities, diagnostics, and audit worksheets."""
+
         workbook = load_workbook(filename=report_path)
 
         for worksheet in workbook.worksheets:
+            sheet_name = worksheet.title
 
-            if worksheet.title == "__ValidationRanges__":
+            if sheet_name in HIDDEN_SUPPORT_SHEETS:
                 continue
 
-            # Unlock all cells first
+            if sheet_name in READ_ONLY_AUDIT_SHEETS:
+                for row in worksheet.iter_rows():
+                    for cell in row:
+                        cell.protection = Protection(locked=True)
+
+                worksheet.auto_filter.ref = worksheet.dimensions
+                worksheet.protection.sheet = lock
+                worksheet.protection.autoFilter = True
+
+                if password:
+                    worksheet.protection.password = password
+
+                continue
+
+            if sheet_name not in EDITABLE_DATATYPE_SHEETS:
+                raise RuntimeError(
+                    "Unrecognized worksheet in column " f"report: {sheet_name!r}"
+                )
+
             for row in worksheet.iter_rows():
                 for cell in row:
                     cell.protection = Protection(locked=False)
 
-            # Lock only protected columns
             for col_header in PROTECTED_COL_NAMES:
-
-                col_letter = SHEET_CELL_MAP[worksheet.title][col_header]
+                col_letter = SHEET_CELL_MAP[sheet_name][col_header]
 
                 for cell in worksheet[col_letter]:
                     cell.protection = Protection(locked=True)
 
-            # Enable sorting and filtering
             worksheet.auto_filter.ref = worksheet.dimensions
-            # worksheet.sheet_view.showGridLines = True
-
             worksheet.protection.sheet = lock
             worksheet.protection.autoFilter = True
-            # worksheet.protection.sort = True
 
             if password:
                 worksheet.protection.password = password
 
-            # Optional: allow selecting only editable cells
             worksheet.protection.enableSelection = "unlockedCells"
-
-            # worksheet.protection.selectLockedCells = True
-            # worksheet.protection.selectUnlockedCells = True
 
         workbook.save(filename=report_path)
 
@@ -531,7 +704,7 @@ class ColReport:
         edits: dict[str, ColEdit] = {}
 
         for sheet_name in curated_col_report.sheet_names:
-            if sheet_name == "__ValidationRanges__":
+            if sheet_name not in EDITABLE_DATATYPE_SHEETS:
                 continue
 
             datatype_df = curated_col_report.parse(sheet_name=sheet_name)
