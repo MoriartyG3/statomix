@@ -21,9 +21,6 @@ from statomix.curation.columns import (
     DatatypeInventory,
     DataTypes,
 )
-from statomix.curation.columns.audit import (
-    DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD,
-)
 from statomix.curation.survival import SurvivalDataTypes
 from statomix.curation.survival.report import (
     SurvCatMetaEditSchema,
@@ -279,7 +276,6 @@ class Cleaner(BasePipeline):
             profiles_path=col_profiles_path,
             audit_profiles_path=col_audit_path,
             value_frequencies_path=(col_value_counts_path),
-            value_count_unique_threshold=(DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD),
             report_metadata={
                 "dataset_name": self.dataset_name,
                 "cleaner_version": resolved_version,
@@ -300,9 +296,6 @@ class Cleaner(BasePipeline):
         version_meta["col_report_exists"] = True
         version_meta["col_audit_exists"] = True
         version_meta["col_value_counts_exists"] = True
-        version_meta["value_count_unique_threshold"] = (
-            DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD
-        )
 
         group_bundle["version"]["group"].attrs["meta"] = version_meta
 

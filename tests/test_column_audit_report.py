@@ -10,6 +10,7 @@ from statomix import Project
 from statomix.curation.columns import (
     ColReport,
     ColumnAudit,
+    DataTypes,
 )
 
 
@@ -58,7 +59,6 @@ def create_direct_report(
         profiles_path=profiles_path,
         audit_profiles_path=audit_path,
         value_frequencies_path=frequencies_path,
-        value_count_unique_threshold=30,
         report_metadata={
             "dataset_name": "test_dataset",
             "source_row_count": len(df),
@@ -156,8 +156,8 @@ def test_integrated_workbook_contains_protected_audit_fields(
     ) = create_direct_report(tmp_path=tmp_path)
 
     workbook = load_workbook(report_path)
-
-    assert "Value Counts" in workbook.sheetnames
+    assert "Categorical Value Counts" in workbook.sheetnames
+    assert "Value Counts" not in workbook.sheetnames
     assert "Report Metadata" in workbook.sheetnames
     assert "__ValidationRanges__" in (workbook.sheetnames)
 
@@ -208,7 +208,7 @@ def test_integrated_workbook_contains_protected_audit_fields(
 
     assert categorical_sheet.protection.sheet is True
 
-    value_counts_sheet = workbook["Value Counts"]
+    value_counts_sheet = workbook["Categorical Value Counts"]
 
     assert value_counts_sheet.protection.sheet is True
     assert value_counts_sheet["A2"].protection.locked is True
@@ -392,28 +392,38 @@ def test_incomplete_existing_artifact_set_is_rejected(
         )
 
 
-def test_invalid_frequency_threshold_is_rejected(
+def test_value_frequencies_are_categorical_only(
     tmp_path,
 ) -> None:
-    df = make_audit_df()
-    report = ColReport()
+    (
+        _,
+        _,
+        audit_path,
+        frequencies_path,
+    ) = create_direct_report(tmp_path=tmp_path)
 
-    profiles_path = tmp_path / "col_profiles.parquet"
-
-    report.create_col_profiles(
-        df=df,
-        path=profiles_path,
-        replace=False,
+    audit = ColumnAudit.load(
+        profiles_path=audit_path,
+        value_frequencies_path=frequencies_path,
     )
 
-    profiles = report.load_col_profiles(path=profiles_path)
+    frequency_column_names = {
+        frequency.col_name for frequency in audit.value_frequencies
+    }
 
-    with pytest.raises(
-        ValueError,
-        match=("value_count_unique_threshold " "must be at least 1"),
-    ):
-        ColumnAudit.from_dataframe(
-            df=df,
-            col_profiles=profiles,
-            value_count_unique_threshold=0,
-        )
+    inferred_categorical_column_names = {
+        col_name
+        for col_name, profile in audit.profiles.items()
+        if profile.inferred_datatype == DataTypes.CATEGORICAL
+    }
+
+    assert frequency_column_names == (inferred_categorical_column_names)
+
+    assert all(
+        frequency.inferred_datatype == DataTypes.CATEGORICAL
+        for frequency in audit.value_frequencies
+    )
+
+    assert "continuous" not in (frequency_column_names)
+    assert "duration_months" not in (frequency_column_names)
+    assert "event" not in frequency_column_names

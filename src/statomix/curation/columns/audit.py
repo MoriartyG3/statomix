@@ -15,8 +15,6 @@ from statomix.core.tabular import frame_from_rows
 from .profiler import ColProfile
 from .semantic_rules import DataTypes
 
-DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD = 30
-
 
 def _optional_float(value: object) -> float | None:
     """Convert a persisted optional numerical value."""
@@ -56,7 +54,6 @@ class ColumnAuditProfile:
         "q3": "float64",
         "maximum": "float64",
         "exact_value_counts_included": "boolean",
-        "value_count_unique_threshold": "int64",
     }
 
     col_name: str
@@ -74,7 +71,6 @@ class ColumnAuditProfile:
     q3: float | None
     maximum: float | None
     exact_value_counts_included: bool
-    value_count_unique_threshold: int
 
     def to_dict(self) -> dict[str, object]:
         """Convert the profile into a stable tabular record."""
@@ -99,7 +95,6 @@ class ColumnAuditProfile:
             "q3": self.q3,
             "maximum": self.maximum,
             "exact_value_counts_included": (self.exact_value_counts_included),
-            "value_count_unique_threshold": (self.value_count_unique_threshold),
         }
 
     @classmethod
@@ -129,13 +124,12 @@ class ColumnAuditProfile:
             q3=_optional_float(row["q3"]),
             maximum=_optional_float(row["maximum"]),
             exact_value_counts_included=bool(row["exact_value_counts_included"]),
-            value_count_unique_threshold=int(row["value_count_unique_threshold"]),
         )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ColumnValueFrequency:
-    """Frequency of one observed value in one source column."""
+    """Frequency of one observed categorical value."""
 
     PARQUET_SCHEMA: ClassVar[dict[str, str]] = {
         "col_name": "object",
@@ -177,7 +171,7 @@ class ColumnValueFrequency:
         cls,
         row: Mapping[str, object],
     ) -> ColumnValueFrequency:
-        """Reconstruct a value frequency from a persisted record."""
+        """Reconstruct a frequency from a persisted record."""
 
         inferred_datatype = row["inferred_datatype"]
 
@@ -200,12 +194,8 @@ class ColumnAudit:
 
     profiles: Mapping[str, ColumnAuditProfile]
     value_frequencies: tuple[ColumnValueFrequency, ...]
-    value_count_unique_threshold: int
 
     def __post_init__(self) -> None:
-        if self.value_count_unique_threshold < 1:
-            raise ValueError("value_count_unique_threshold must be at least 1")
-
         object.__setattr__(
             self,
             "profiles",
@@ -223,12 +213,8 @@ class ColumnAudit:
         *,
         df: pd.DataFrame,
         col_profiles: Mapping[str, ColProfile],
-        value_count_unique_threshold: int = (DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD),
     ) -> ColumnAudit:
         """Audit every column without modifying the DataFrame."""
-
-        if value_count_unique_threshold < 1:
-            raise ValueError("value_count_unique_threshold must be at least 1")
 
         if not df.columns.is_unique:
             duplicate_columns = list(df.columns[df.columns.duplicated()])
@@ -243,7 +229,10 @@ class ColumnAudit:
                 "do not have identical names and order."
             )
 
-        audit_profiles: dict[str, ColumnAuditProfile] = {}
+        audit_profiles: dict[
+            str,
+            ColumnAuditProfile,
+        ] = {}
         value_frequencies: list[ColumnValueFrequency] = []
 
         for col_name, profile in col_profiles.items():
@@ -287,22 +276,26 @@ class ColumnAudit:
                 maximum = None
             else:
                 quantiles = valid_numeric_series.quantile(
-                    [0.00, 0.25, 0.50, 0.75, 1.00]
+                    [
+                        0.00,
+                        0.25,
+                        0.50,
+                        0.75,
+                        1.00,
+                    ]
                 )
+
                 minimum = float(quantiles.loc[0.00])
                 q1 = float(quantiles.loc[0.25])
                 median = float(quantiles.loc[0.50])
                 q3 = float(quantiles.loc[0.75])
                 maximum = float(quantiles.loc[1.00])
 
-            include_exact_counts = (
-                profile.col_type == DataTypes.CATEGORICAL
-                or observed_unique_n <= value_count_unique_threshold
-            )
+            include_exact_counts = profile.col_type == DataTypes.CATEGORICAL
 
             audit_profiles[col_name] = ColumnAuditProfile(
                 col_name=col_name,
-                inferred_datatype=profile.col_type,
+                inferred_datatype=(profile.col_type),
                 source_dtype=str(series.dtype),
                 missing_n=observed_missing_n,
                 missing_pct=profile.missing_pct,
@@ -316,7 +309,6 @@ class ColumnAudit:
                 q3=q3,
                 maximum=maximum,
                 exact_value_counts_included=(include_exact_counts),
-                value_count_unique_threshold=(value_count_unique_threshold),
             )
 
             if not include_exact_counts:
@@ -334,7 +326,7 @@ class ColumnAudit:
                 value_frequencies.append(
                     ColumnValueFrequency(
                         col_name=col_name,
-                        inferred_datatype=profile.col_type,
+                        inferred_datatype=(profile.col_type),
                         value_display=repr(observed_value),
                         value_type=(
                             f"{type(observed_value).__module__}."
@@ -353,7 +345,7 @@ class ColumnAudit:
                 value_frequencies.append(
                     ColumnValueFrequency(
                         col_name=col_name,
-                        inferred_datatype=profile.col_type,
+                        inferred_datatype=(profile.col_type),
                         value_display="<MISSING>",
                         value_type="missing",
                         is_missing=True,
@@ -368,7 +360,6 @@ class ColumnAudit:
         return cls(
             profiles=audit_profiles,
             value_frequencies=tuple(value_frequencies),
-            value_count_unique_threshold=(value_count_unique_threshold),
         )
 
     def save(
@@ -388,7 +379,7 @@ class ColumnAudit:
         )
         frequencies_df = frame_from_rows(
             rows=frequency_rows,
-            schema=ColumnValueFrequency.PARQUET_SCHEMA,
+            schema=(ColumnValueFrequency.PARQUET_SCHEMA),
         )
 
         profiles_df.to_parquet(
@@ -425,24 +416,7 @@ class ColumnAudit:
             for row in frequencies_df.to_dict(orient="records")
         )
 
-        thresholds = {
-            profile.value_count_unique_threshold for profile in profiles.values()
-        }
-
-        if len(thresholds) > 1:
-            raise ValueError(
-                "Persisted audit profiles contain inconsistent "
-                "value-count thresholds."
-            )
-
-        threshold = (
-            next(iter(thresholds))
-            if thresholds
-            else DEFAULT_VALUE_COUNT_UNIQUE_THRESHOLD
-        )
-
         return cls(
             profiles=profiles,
             value_frequencies=value_frequencies,
-            value_count_unique_threshold=threshold,
         )

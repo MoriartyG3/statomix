@@ -72,7 +72,7 @@ EDITABLE_DATATYPE_SHEETS = frozenset(datatype.value for datatype in DataTypes)
 
 READ_ONLY_AUDIT_SHEETS = frozenset(
     {
-        "Value Counts",
+        "Categorical Value Counts",
         "Report Metadata",
     }
 )
@@ -256,7 +256,6 @@ class ColReport:
         rename_mapping=None,
         audit_profiles_path: Path | None = None,
         value_frequencies_path: Path | None = None,
-        value_count_unique_threshold: int = 30,
         report_metadata: Mapping[str, object] | None = None,
     ) -> None:
         """Create the integrated editable and diagnostic report."""
@@ -284,7 +283,6 @@ class ColReport:
         column_audit = ColumnAudit.from_dataframe(
             df=df,
             col_profiles=col_profiles,
-            value_count_unique_threshold=(value_count_unique_threshold),
         )
 
         if audit_profiles_path is not None and value_frequencies_path is not None:
@@ -497,21 +495,14 @@ class ColReport:
 
             frequencies_df.to_excel(
                 excel_writer=writer,
-                sheet_name="Value Counts",
+                sheet_name="Categorical Value Counts",
                 index=False,
             )
 
             metadata = {
                 "report_schema_version": 1,
                 "source_column_count": len(column_audit.profiles),
-                "value_count_unique_threshold": (
-                    column_audit.value_count_unique_threshold
-                ),
-                "value_frequency_rule": (
-                    "All inferred categorical columns and "
-                    "all columns with unique_n less than or "
-                    "equal to the configured threshold"
-                ),
+                "value_frequency_rule": ("Only columns inferred as Categorical"),
             }
 
             if report_metadata is not None:
