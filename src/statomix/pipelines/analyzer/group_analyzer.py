@@ -58,9 +58,13 @@ class GroupAnalyzer:
                 "Survival pairs do not exist for the given dataset at "
                 f"{self.input_paths.surv_pairs}."
             )
+
         if "surv_pairs" not in self.cache:
             self.cache["surv_pairs"] = SurvPairs.load(path=self.input_paths.surv_pairs)
-        return self.cache["surv_pairs"]
+
+        pairs = self.cache["surv_pairs"]
+        pairs.require_supported(operation="GroupAnalyzer")
+        return pairs
 
     def _get_datatype_map(self) -> dict[DataTypes, list[str]]:
         if "datatype_map" not in self.cache:

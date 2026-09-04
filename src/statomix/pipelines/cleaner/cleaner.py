@@ -542,6 +542,41 @@ class Cleaner(BasePipeline):
             inventory=inventory,
         )
 
+    def _require_supported_survival(
+        self,
+        *,
+        group_bundle,
+        operation: str,
+    ) -> None:
+        """Check declarations before processing or cached-artifact reuse."""
+
+        config_path = group_bundle["config"]["path"]
+
+        candidate_paths = (
+            config_path / "surv_pairs.parquet",
+            config_path / "curated_data" / "surv_pairs.parquet",
+        )
+        found_pairs = False
+
+        for path in candidate_paths:
+            if path.is_file():
+                found_pairs = True
+                SurvPairs.load(path=path).require_supported(operation=operation)
+
+        if found_pairs:
+            return
+
+        # Configurations without survival columns need no declaration.
+        _, inventory = self._get_curated_datatype_inventory(group_bundle=group_bundle)
+        if inventory.count(datatype=DataTypes.SURVIVAL) == 0:
+            return
+
+        raise FileNotFoundError(
+            f"{operation}: survival declarations are unavailable. "
+            "Run create_surv_meta_edit_schema() for this Cleaner "
+            "configuration first."
+        )
+
     def create_surv_meta_report(
         self, version=None, config_version=None, config_name=None, create_new=False
     ):
@@ -721,25 +756,35 @@ class Cleaner(BasePipeline):
         surv_profiles = self.surv_meta_report.load_semantic_profiles(
             path=surv_profiles_path
         )
-        curated_meta_report = pd.ExcelFile(curated_meta_report_path)
+        with pd.ExcelFile(curated_meta_report_path) as curated_meta_report:
+            meta_edit_schema = self.surv_meta_report.get_surv_edit_schema(
+                curated_meta_report=curated_meta_report
+            )
 
-        meta_edit_schema = self.surv_meta_report.get_surv_edit_schema(
-            curated_meta_report=curated_meta_report
-        )
+            surv_profiles_curated = self.surv_meta_report.get_curated_surv_profiles(
+                meta_edit_schema=meta_edit_schema,
+                surv_profiles=surv_profiles,
+            )
+
+            surv_meta_df = curated_meta_report.parse(
+                sheet_name="SurvMeta",
+                keep_default_na=False,
+            )
+            surv_pairs = self.surv_meta_report.get_surv_pairs(
+                surv_meta_df=surv_meta_df,
+                surv_profiles=surv_profiles_curated,
+            )
+
+        # Validate the complete report before saving derived artifacts.
+        # Unsupported declarations can be persisted at this stage.
         meta_edit_schema.save(path=meta_edit_schema_path)
 
-        surv_profiles_curated = self.surv_meta_report.get_curated_surv_profiles(
-            meta_edit_schema=meta_edit_schema, surv_profiles=surv_profiles
-        )
         self.surv_meta_report.save_semantic_profiles(
-            semantic_profiles=surv_profiles_curated, path=surv_profiles_curated_path
-        )
-
-        surv_meta_df = curated_meta_report.parse(sheet_name="SurvMeta")
-        surv_pairs = self.surv_meta_report.get_surv_pairs(
-            surv_meta_df=surv_meta_df, surv_profiles=surv_profiles_curated
+            semantic_profiles=surv_profiles_curated,
+            path=surv_profiles_curated_path,
         )
         surv_pairs.save(path=surv_pairs_path)
+
         self._record_procedure_status(
             group_bundle=group_bundle,
             procedure="survival_meta_edit_schema",
@@ -761,6 +806,11 @@ class Cleaner(BasePipeline):
             config_name=config_name,
             config_version=config_version,
             config_version_create_new=create_new,
+        )
+
+        self._require_supported_survival(
+            group_bundle=group_bundle,
+            operation="create_surv_cat_meta_report",
         )
         version_meta = group_bundle["version"]["meta"]
         version = version_meta["version"]
@@ -871,6 +921,11 @@ class Cleaner(BasePipeline):
     def create_surv_cat_meta_edit_schema(self, version=None, config_version=None):
         group_bundle = self._get_group_bundle(
             version=version, config_version=config_version
+        )
+
+        self._require_supported_survival(
+            group_bundle=group_bundle,
+            operation="create_curated_data",
         )
 
         # version_meta = group_bundle['version']['meta']
@@ -987,6 +1042,11 @@ class Cleaner(BasePipeline):
 
         group_bundle = self._get_group_bundle(
             version=version, config_version=config_version
+        )
+
+        self._require_supported_survival(
+            group_bundle=group_bundle,
+            operation="create_curated_data",
         )
 
         version_meta = group_bundle["version"]["meta"]

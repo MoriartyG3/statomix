@@ -58,6 +58,10 @@ class Dataset(BaseDataset):
             version=version,
             config_version=config_version,
         )
+        self.cleaner._require_supported_survival(
+            group_bundle=cleaner_bundle,
+            operation="configure_analyzer",
+        )
         cleaner_version_meta = cleaner_bundle["version"]["meta"]
         cleaner_config_meta = cleaner_bundle["config"]["meta"]
         cleaner_version = int(cleaner_version_meta["version"])

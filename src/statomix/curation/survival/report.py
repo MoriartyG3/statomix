@@ -18,6 +18,15 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from statomix.core.tabular import frame_from_rows
 from statomix.logging import get_logger
 
+from .declarations import (
+    DEFAULT_EVENT_STRUCTURE,
+    DEFAULT_OBSERVATION_SCHEME,
+    EVENT_STRUCTURES,
+    OBSERVATION_SCHEMES,
+    has_declaration_fields,
+    read_survival_declaration,
+    require_supported_survival,
+)
 from .events import (
     decode_category_scalar,
     encode_category_scalar,
@@ -307,20 +316,46 @@ class SurvPair:
     surv_label: str
     event_profile: SurvivalSemanticProfile
     time_profile: SurvivalSemanticProfile
+    event_structure: str = DEFAULT_EVENT_STRUCTURE
+    observation_scheme: str = DEFAULT_OBSERVATION_SCHEME
+
+    def __post_init__(self) -> None:
+        event_structure, observation_scheme = read_survival_declaration(
+            {
+                "event_structure": self.event_structure,
+                "observation_scheme": self.observation_scheme,
+            }
+        )
+        object.__setattr__(self, "event_structure", event_structure)
+        object.__setattr__(self, "observation_scheme", observation_scheme)
 
     def to_dict(self):
         return {
             "surv_label": self.surv_label,
             "event_profile": self.event_profile.to_dict(),
             "time_profile": self.time_profile.to_dict(),
+            "event_structure": self.event_structure,
+            "observation_scheme": self.observation_scheme,
         }
 
     @classmethod
     def from_dict(cls, data):
+        event_structure, observation_scheme = read_survival_declaration(data)
+
         return cls(
             surv_label=data["surv_label"],
             event_profile=SurvivalSemanticProfile.from_dict(data["event_profile"]),
             time_profile=SurvivalSemanticProfile.from_dict(data["time_profile"]),
+            event_structure=event_structure,
+            observation_scheme=observation_scheme,
+        )
+
+    def require_supported(self, *, operation: str) -> None:
+        require_supported_survival(
+            surv_label=self.surv_label,
+            event_structure=self.event_structure,
+            observation_scheme=self.observation_scheme,
+            operation=operation,
         )
 
 
@@ -328,26 +363,35 @@ class SurvPair:
 class SurvPairs:
     pairs: Mapping[str, SurvPair]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "pairs", MappingProxyType(dict(self.pairs)))
-
     PARQUET_SCHEMA: ClassVar[dict[str, str]] = {
         "surv_label": "object",
         "event_profile": "object",
         "time_profile": "object",
+        "event_structure": "object",
+        "observation_scheme": "object",
     }
 
+    def __post_init__(self):
+        object.__setattr__(
+            self,
+            "pairs",
+            MappingProxyType(dict(self.pairs)),
+        )
+
     @classmethod
-    def empty(cls) -> SurvPairs:
+    def empty(cls):
         return cls(pairs={})
 
     @property
-    def is_empty(self) -> bool:
+    def is_empty(self):
         return not self.pairs
 
-    def save(self, path: Path) -> None:
-        rows = [pair.to_dict() for pair in self.pairs.values()]
+    def require_supported(self, *, operation: str) -> None:
+        for pair in self.pairs.values():
+            pair.require_supported(operation=operation)
 
+    def save(self, path):
+        rows = [pair.to_dict() for pair in self.pairs.values()]
         df = frame_from_rows(
             rows=rows,
             schema=self.PARQUET_SCHEMA,
@@ -355,13 +399,19 @@ class SurvPairs:
         df.to_parquet(path=path, index=False)
 
     @classmethod
-    def load(cls, path: Path) -> SurvPairs:
+    def load(cls, path):
         df = pd.read_parquet(path)
 
-        pairs: dict[str, SurvPair] = {}
+        # Validate the schema even when there are no endpoint rows.
+        has_declaration_fields(df.columns)
 
-        for _, row in df.iterrows():
-            pair = SurvPair.from_dict(row.to_dict())
+        pairs = {}
+        for row in df.to_dict(orient="records"):
+            pair = SurvPair.from_dict(row)
+
+            if pair.surv_label in pairs:
+                raise ValueError(f"Duplicate survival endpoint: {pair.surv_label!r}.")
+
             pairs[pair.surv_label] = pair
 
         return cls(pairs=pairs)
@@ -439,22 +489,22 @@ class SurvMetaReport:
 
     @staticmethod
     def _get_validation_df():
-        dropdown_options = [datatype.value for datatype in SurvivalDataTypes]
+        options = {
+            "DataTypes": [datatype.value for datatype in SurvivalDataTypes],
+            "Survival Type": ["Event", "Time"],
+            "Booleans": ["True", "False"],
+            "Event Structure": list(EVENT_STRUCTURES),
+            "Observation Scheme": list(OBSERVATION_SCHEMES),
+        }
 
-        max_len = max(len(dropdown_options), 2)
-        datatypes = dropdown_options + [""] * (max_len - len(dropdown_options))
-        survival_type = ["Event", "Time"] + [""] * (max_len - 2)
-        boolean = ["True", "False"] + [""] * (max_len - 2)
+        max_length = max(len(values) for values in options.values())
 
-        validation_df = pd.DataFrame(
-            data={
-                "DataTypes": datatypes,
-                "Survival Type": survival_type,
-                "Booleans": boolean,
+        return pd.DataFrame(
+            {
+                name: values + [""] * (max_length - len(values))
+                for name, values in options.items()
             }
         )
-
-        return validation_df
 
     @staticmethod
     def save_col_report(
@@ -465,82 +515,99 @@ class SurvMetaReport:
     ):
         survival_labels = survival_labels or {}
         rows = []
+
         for col_name in col_names:
             rows.append(
                 {
                     "col_name": col_name,
-                    "inferred_datatype": semantic_profiles[col_name].col_type.value,
+                    "inferred_datatype": (semantic_profiles[col_name].col_type.value),
                     "change_datatype": pd.NA,
                     "survival_label": survival_labels.get(col_name, pd.NA),
+                    "event_structure": DEFAULT_EVENT_STRUCTURE,
+                    "observation_scheme": DEFAULT_OBSERVATION_SCHEME,
                     "remove": pd.NA,
                 }
             )
-
-        writer = pd.ExcelWriter(path=path, engine="openpyxl")
 
         report_columns = [
             "col_name",
             "inferred_datatype",
             "change_datatype",
             "survival_label",
+            "event_structure",
+            "observation_scheme",
             "remove",
         ]
-        pd.DataFrame(data=rows, columns=report_columns).to_excel(
-            excel_writer=writer, index=False, sheet_name="SurvMeta"
-        )
 
-        validation_df = SurvMetaReport._get_validation_df()
-        validation_df.to_excel(
-            excel_writer=writer, sheet_name="__ValidationRanges__", index=False
-        )
-        writer.sheets["__ValidationRanges__"].sheet_state = "veryHidden"
+        with pd.ExcelWriter(path=path, engine="openpyxl") as writer:
+            pd.DataFrame(
+                rows,
+                columns=report_columns,
+            ).to_excel(
+                excel_writer=writer,
+                index=False,
+                sheet_name="SurvMeta",
+            )
 
-        writer.close()
+            SurvMetaReport._get_validation_df().to_excel(
+                excel_writer=writer,
+                index=False,
+                sheet_name="__ValidationRanges__",
+            )
+            writer.sheets["__ValidationRanges__"].sheet_state = "veryHidden"
 
     @staticmethod
     def _add_validation_datatype(report_path):
-
         workbook = load_workbook(filename=report_path)
-        total_datatypes = len(SurvivalDataTypes)
 
-        worksheet = workbook["SurvMeta"]
+        try:
+            worksheet = workbook["SurvMeta"]
+            col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
 
-        col_map = BaseExcel.get_worksheet_col_map(worksheet=worksheet)
+            if worksheet.max_row < 2:
+                return
 
-        max_row = worksheet.max_row
-        if max_row < 2:
-            logger.info("No survival rows require Excel validation.")
-            return
+            rules = {
+                "change_datatype": (
+                    f"=__ValidationRanges__!$A$2:" f"$A${len(SurvivalDataTypes) + 1}",
+                    True,
+                ),
+                "remove": (
+                    "=__ValidationRanges__!$C$2:$C$3",
+                    True,
+                ),
+                "event_structure": (
+                    f"=__ValidationRanges__!$D$2:" f"$D${len(EVENT_STRUCTURES) + 1}",
+                    False,
+                ),
+                "observation_scheme": (
+                    f"=__ValidationRanges__!$E$2:" f"$E${len(OBSERVATION_SCHEMES) + 1}",
+                    False,
+                ),
+            }
 
-        validation_datatype = DataValidation(
-            type="list",
-            formula1=f"=__ValidationRanges__!$A$2:$A${total_datatypes + 1}",
-            allow_blank=True,
-            showErrorMessage=True,
-            errorStyle="stop",
-            errorTitle="Invalid Datatype",
-            error="You must select a valid datatype from the provided drop-down menu.",
-        )
-        worksheet.add_data_validation(validation_datatype)
-        validation_datatype.add(
-            f"{col_map["change_datatype"]}2:{col_map["change_datatype"]}{worksheet.max_row}"
-        )
+            for field_name, (formula, allow_blank) in rules.items():
+                validation = DataValidation(
+                    type="list",
+                    formula1=formula,
+                    allow_blank=allow_blank,
+                    showDropDown=False,
+                    showInputMessage=False,
+                    showErrorMessage=True,
+                    errorStyle="stop",
+                    errorTitle="Invalid survival metadata",
+                    error="Select a value from the dropdown.",
+                )
+                worksheet.add_data_validation(validation)
 
-        validation_remove = DataValidation(
-            type="list",
-            formula1="=__ValidationRanges__!$C$2:$C$3",
-            allow_blank=True,
-            showErrorMessage=True,
-            errorStyle="stop",
-            errorTitle="Invalid Datatype",
-            error="You must select an option from the provided drop-down menu.",
-        )
-        worksheet.add_data_validation(validation_remove)
-        validation_remove.add(
-            f"{col_map["remove"]}2:{col_map["remove"]}{worksheet.max_row}"
-        )
+                column_letter = col_map[field_name]
+                validation.add(
+                    f"{column_letter}2:" f"{column_letter}{worksheet.max_row}"
+                )
 
-        workbook.save(filename=report_path)
+            workbook.save(filename=report_path)
+        finally:
+            workbook.close()
 
     @staticmethod
     def _get_surv_edits(surv_meta_df):
@@ -592,55 +659,92 @@ class SurvMetaReport:
 
     @staticmethod
     def get_surv_pairs(surv_meta_df, surv_profiles):
+        if not surv_meta_df.columns.is_unique:
+            raise ValueError("SurvMeta contains duplicate column headers.")
 
-        pairs: dict[str, SurvPair] = {}
+        required_columns = {"col_name", "survival_label"}
+        missing = required_columns - set(surv_meta_df.columns)
+        if missing:
+            raise ValueError(f"SurvMeta is missing columns: {sorted(missing)!r}.")
 
-        required_types = {
-            SurvivalDataTypes.EVENT.value,
-            SurvivalDataTypes.TIME.value,
-        }
+        has_declaration_fields(surv_meta_df.columns)
 
-        for surv_label, surv_group in surv_meta_df.groupby("survival_label"):
-            if not surv_label:
+        grouped = defaultdict(list)
+        seen_columns = set()
+
+        for row in surv_meta_df.to_dict(orient="records"):
+            col_name = row["col_name"]
+
+            # Profiles already exclude columns removed by the edit schema.
+            if col_name not in surv_profiles:
                 continue
 
-            if len(surv_group) != 2:
+            if col_name in seen_columns:
+                raise ValueError(f"Duplicate survival column row: {col_name!r}.")
+            seen_columns.add(col_name)
+
+            declaration = read_survival_declaration(row)
+            surv_label = row["survival_label"]
+
+            if is_blank_cell(surv_label):
+                if declaration != (
+                    DEFAULT_EVENT_STRUCTURE,
+                    DEFAULT_OBSERVATION_SCHEME,
+                ):
+                    raise ValueError(
+                        f"Column {col_name!r} declares a non-default "
+                        "survival type but has no survival_label."
+                    )
+                continue
+
+            if not isinstance(surv_label, str):
+                raise ValueError("survival_label must be text.")
+
+            surv_label = surv_label.strip()
+
+            grouped[surv_label].append((surv_profiles[col_name], declaration))
+
+        pairs = {}
+
+        for surv_label, entries in grouped.items():
+            if len(entries) != 2:
                 raise ValueError(
-                    f"Survival label '{surv_label}' must have exactly 2 rows, "
-                    f"found {len(surv_group)}."
+                    f"Survival label {surv_label!r} must have exactly "
+                    f"2 rows, found {len(entries)}."
                 )
 
-            found_types = set(surv_group["inferred_datatype"])
-
-            if found_types != required_types:
+            declarations = {declaration for _, declaration in entries}
+            if len(declarations) != 1:
                 raise ValueError(
-                    f"Survival label '{surv_label}' must contain exactly one "
-                    f"'{SurvivalDataTypes.EVENT.value}' and one "
-                    f"'{SurvivalDataTypes.TIME.value}' row. "
-                    f"Found: {sorted(found_types)}."
+                    f"Survival label {surv_label!r} has inconsistent "
+                    "event_structure or observation_scheme values. "
+                    "Use the same choices on its Event and Time rows."
                 )
 
-            group_by_type = surv_group.set_index("inferred_datatype")
+            # Use the curated roles, including change_datatype decisions.
+            profiles_by_type = {profile.col_type: profile for profile, _ in entries}
+            required_types = {
+                SurvivalDataTypes.EVENT,
+                SurvivalDataTypes.TIME,
+            }
 
-            event_col = group_by_type.at[
-                SurvivalDataTypes.EVENT.value,
-                "col_name",
-            ]
+            if set(profiles_by_type) != required_types:
+                raise ValueError(
+                    f"Survival label {surv_label!r} must contain "
+                    "exactly one Event row and one Time row."
+                )
 
-            time_col = group_by_type.at[
-                SurvivalDataTypes.TIME.value,
-                "col_name",
-            ]
+            event_structure, observation_scheme = declarations.pop()
 
             pairs[surv_label] = SurvPair(
                 surv_label=surv_label,
-                event_profile=surv_profiles[event_col],
-                time_profile=surv_profiles[time_col],
+                event_profile=profiles_by_type[SurvivalDataTypes.EVENT],
+                time_profile=profiles_by_type[SurvivalDataTypes.TIME],
+                event_structure=event_structure,
+                observation_scheme=observation_scheme,
             )
 
-        surv_pairs = SurvPairs(pairs=pairs)
-
-        return surv_pairs
+        return SurvPairs(pairs=pairs)
 
     @staticmethod
     def _get_surv_cat_meta_df(df, col_names, rename_mapping):
@@ -740,42 +844,58 @@ class SurvMetaReport:
 
     @staticmethod
     def _add_surv_cat_validation(report_path):
+        """Add event and removal dropdowns without input popups."""
+
         workbook = load_workbook(filename=report_path)
 
         try:
             worksheet = workbook["SurvCatMeta"]
             column_numbers = {cell.value: cell.column for cell in worksheet[1]}
 
+            required_columns = {
+                "category_encoding",
+                "event_observed",
+                "remove",
+            }
+            missing_columns = required_columns - set(column_numbers)
+            if missing_columns:
+                raise ValueError(
+                    "SurvCatMeta is missing required columns: "
+                    f"{sorted(missing_columns)!r}."
+                )
+
             encoding_letter = get_column_letter(column_numbers["category_encoding"])
             worksheet.column_dimensions[encoding_letter].hidden = True
 
-            prompts = {
+            instructions = {
                 "event_observed": (
-                    "True: endpoint observed. False: right-censored. "
-                    "Leave blank when removing the category."
+                    "True = event observed; False = right-censored. "
+                    "Blank does not request removal."
                 ),
                 "remove": (
-                    "True converts this category to missing; it does not "
-                    "mark the observation as censored."
+                    "True = convert this category to missing. "
+                    "Leave event_observed blank when removing a category."
                 ),
             }
 
             if worksheet.max_row >= 2:
-                for field_name, prompt in prompts.items():
+                for field_name, instruction in instructions.items():
                     column_letter = get_column_letter(column_numbers[field_name])
+
                     validation = DataValidation(
                         type="list",
                         formula1='"True,False"',
                         allow_blank=True,
                         showDropDown=False,
+                        showInputMessage=False,
                         showErrorMessage=True,
-                        showInputMessage=True,
                         errorStyle="stop",
                         errorTitle="Invalid Boolean instruction",
-                        error="Select True, False, or leave the cell blank.",
+                        error=("Select True, False, or leave the cell blank."),
                         promptTitle=field_name,
-                        prompt=prompt,
+                        prompt=instruction,
                     )
+
                     worksheet.add_data_validation(validation)
                     validation.add(
                         f"{column_letter}2:" f"{column_letter}{worksheet.max_row}"

@@ -521,6 +521,7 @@ def _rebuild_survival_pairs(
     survival_profiles: Mapping[str, SurvivalSemanticProfile],
     complete_mapping: Mapping[str, str],
 ) -> SurvPairs:
+    source_pairs.require_supported(operation="Curated-state inheritance")
     pairs: dict[str, SurvPair] = {}
     paired_columns: set[str] = set()
     for label, source_pair in source_pairs.pairs.items():
@@ -574,7 +575,8 @@ def _rebuild_survival_pairs(
             event_column=event_column,
             time_column=time_column,
         )
-        pairs[label] = SurvPair(
+        pairs[label] = replace(
+            source_pair,
             surv_label=label,
             event_profile=event_profile,
             time_profile=time_profile,

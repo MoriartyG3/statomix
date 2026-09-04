@@ -605,6 +605,10 @@ def inherit_curated_state(
         version=source_version,
         config_version=source_config_version,
     )
+    source_cleaner._require_supported_survival(
+        group_bundle=source_bundle,
+        operation="Curated-state inheritance",
+    )
     source_curated_group = source_cleaner.get_curated_data_group(
         version=source_version,
         config_version=source_config_version,
@@ -649,6 +653,7 @@ def inherit_curated_state(
         path=source_survival_profiles_path
     )
     parent_pairs = SurvPairs.load(path=source_curated_paths["surv_pairs"])
+    parent_pairs.require_supported(operation="Curated-state inheritance")
     source_cat_schema = (
         CatMetaEditSchema.load(path=source_cat_schema_path)
         if source_cat_schema_path.is_file()

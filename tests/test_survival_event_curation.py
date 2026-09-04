@@ -357,8 +357,25 @@ def test_excel_dropdowns_and_literal_source_labels(tmp_path):
     assert worksheet.column_dimensions[encoding_letter].hidden
 
     validations = worksheet.data_validations.dataValidation
+
     assert len(validations) == 2
     assert all(validation.showDropDown is False for validation in validations)
+    assert all(validation.showInputMessage is False for validation in validations)
+
+    # Check that each editable field has its own Boolean dropdown.
+    for field_name in ("event_observed", "remove"):
+        cell = worksheet.cell(
+            row=2,
+            column=headers[field_name],
+        )
+        matching_validations = [
+            validation
+            for validation in validations
+            if cell.coordinate in validation.sqref
+        ]
+
+        assert len(matching_validations) == 1
+        assert matching_validations[0].formula1 == '"True,False"'
 
     for row_number in range(2, worksheet.max_row + 1):
         category = worksheet.cell(

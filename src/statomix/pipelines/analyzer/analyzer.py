@@ -58,7 +58,13 @@ class Analyzer(BasePipeline):
             message = f"Group analyzer paths do not exist at {paths_file}."
             logger.error(message)
             raise FileNotFoundError(message)
-        return GroupAnalyzer(paths=load_analyzer_input_paths(source=paths_file))
+
+        group_analyzer = GroupAnalyzer(
+            paths=load_analyzer_input_paths(source=paths_file)
+        )
+        group_analyzer._get_surv_pairs()
+        return group_analyzer
+        # return GroupAnalyzer(paths=load_analyzer_input_paths(source=paths_file))
 
     def create_summary_report(
         self,
