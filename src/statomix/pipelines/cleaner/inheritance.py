@@ -30,6 +30,7 @@ from statomix.curation.survival import (
     SurvivalDataTypes,
     SurvPairs,
 )
+from statomix.curation.survival.events import normalize_survival_event_columns
 from statomix.storage.atomic import atomic_output_path
 from statomix.storage.hashing import sha256_file
 from statomix.storage.layout import StatomixLayout
@@ -546,6 +547,18 @@ def _record_metadata(
             "surv_meta_report_exists": bool(survival_count),
         }
     )
+
+    config_meta["survival_event_encoding"] = {
+        "columns": [
+            profile.col_name
+            for profile in state.survival_profiles.values()
+            if profile.col_type == SurvivalDataTypes.EVENT
+        ],
+        "dtype": "boolean",
+        "false": "right_censored",
+        "true": "event_observed",
+        "missing": "unknown_or_removed",
+    }
     config_group.attrs["meta"] = config_meta
 
     curated_data_group.attrs["meta"] = {
@@ -667,6 +680,16 @@ def inherit_curated_state(
         changed_columns=changed_columns,
         row_key=row_key,
         strict=strict,
+    )
+
+    survival_event_columns = tuple(
+        profile.col_name
+        for profile in state.survival_profiles.values()
+        if profile.col_type == SurvivalDataTypes.EVENT
+    )
+    curated_target_df = normalize_survival_event_columns(
+        df=curated_target_df,
+        event_columns=survival_event_columns,
     )
 
     target_bundle = target_cleaner._get_group_bundle(

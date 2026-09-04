@@ -22,6 +22,7 @@ from statomix.curation.survival import (
     SurvPairs,
     get_survival_semantic_col_profile,
 )
+from statomix.curation.survival.events import apply_survival_event_edits
 
 
 def apply_inherited_category_edits(
@@ -32,13 +33,14 @@ def apply_inherited_category_edits(
     column_mapping: Mapping[str, str] | None,
     changed_columns: Collection[str],
 ) -> pd.DataFrame:
-    """Apply parent category decisions only to explicitly changed columns."""
+    """Apply parent decisions only to explicitly changed target columns."""
 
     if isinstance(changed_columns, (str, bytes)):
         raise CuratedStateInheritanceError(
             "changed_columns must be a collection of complete column names, "
             "not one string."
         )
+
     provided_changes = tuple(changed_columns)
     invalid = [
         name for name in provided_changes if not isinstance(name, str) or not name
@@ -47,36 +49,65 @@ def apply_inherited_category_edits(
         raise CuratedStateInheritanceError(
             f"changed_columns must contain non-empty strings: {invalid!r}."
         )
+
     changed = set(provided_changes)
     mapping = dict(column_mapping or {})
     curated_df = target_df.copy(deep=True)
 
-    for edit_schema in (
-        source_cat_meta_edit_schema,
-        source_surv_cat_meta_edit_schema,
-    ):
-        for source_name, category_edits in edit_schema.cat_edits.items():
-            target_name = mapping.get(source_name, source_name)
-            if target_name not in changed:
+    for source_name, category_edits in source_cat_meta_edit_schema.cat_edits.items():
+        target_name = mapping.get(source_name, source_name)
+        if target_name not in changed:
+            continue
+
+        if target_name not in curated_df.columns:
+            raise CuratedStateInheritanceError(
+                "A parent category edit maps to a missing changed column: "
+                f"{source_name!r} -> {target_name!r}."
+            )
+
+        category_mapping = {}
+        for edit in category_edits.values():
+            if edit.rename_to is not None:
+                category_mapping[edit.category] = edit.rename_to
+            elif edit.remove:
+                category_mapping[edit.category] = pd.NA
+            elif getattr(edit, "rank", None) is not None:
                 continue
-            if target_name not in curated_df.columns:
+            else:
                 raise CuratedStateInheritanceError(
-                    "A parent category edit maps to a missing changed column: "
-                    f"{source_name!r} -> {target_name!r}."
+                    f"Parent category edit for {source_name!r} has no action."
                 )
 
-            category_mapping: dict[object, object] = {}
-            for edit in category_edits.values():
-                if edit.rename_to is not None:
-                    category_mapping[edit.category] = edit.rename_to
-                elif edit.remove:
-                    category_mapping[edit.category] = pd.NA
-                else:
-                    raise CuratedStateInheritanceError(
-                        f"Parent category edit for {source_name!r} has neither "
-                        "a rename target nor a removal instruction."
-                    )
-            curated_df[target_name] = curated_df[target_name].replace(category_mapping)
+        curated_df[target_name] = curated_df[target_name].replace(category_mapping)
+
+    survival_edits = {}
+    for (
+        source_name,
+        category_edits,
+    ) in source_surv_cat_meta_edit_schema.cat_edits.items():
+        target_name = mapping.get(source_name, source_name)
+        if target_name not in changed:
+            continue
+
+        if target_name not in curated_df.columns:
+            raise CuratedStateInheritanceError(
+                "A parent event edit maps to a missing changed column: "
+                f"{source_name!r} -> {target_name!r}."
+            )
+
+        survival_edits[target_name] = category_edits
+
+    try:
+        curated_df = apply_survival_event_edits(
+            df=curated_df,
+            category_edits=survival_edits,
+            # Changed target data need not contain every parent category.
+            require_all_categories=False,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CuratedStateInheritanceError(
+            f"Inherited survival-event curation failed: {exc}"
+        ) from exc
 
     return curated_df
 

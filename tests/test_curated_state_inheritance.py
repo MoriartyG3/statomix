@@ -21,6 +21,7 @@ from statomix.curation.survival import (
     SurvPairs,
     get_survival_semantic_col_profile,
 )
+from statomix.curation.survival.events import encode_category_scalar
 from statomix.curation.survival.report import SurvCatEdit
 from statomix.storage.layout import StatomixLayout
 
@@ -195,19 +196,25 @@ def test_parent_category_edits_apply_only_to_changed_columns():
             }
         }
     )
+
+    alive_identity = encode_category_scalar("alive")
+    dead_identity = encode_category_scalar("dead")
+
     survival_schema = SurvCatMetaEditSchema(
         cat_edits={
             "OS Event": {
-                "alive": SurvCatEdit(
+                alive_identity: SurvCatEdit(
                     col_name="OS Event",
                     category="alive",
-                    rename_to="0",
+                    category_encoding=alive_identity,
+                    event_observed=False,
                     remove=False,
                 ),
-                "dead": SurvCatEdit(
+                dead_identity: SurvCatEdit(
                     col_name="OS Event",
                     category="dead",
-                    rename_to="1",
+                    category_encoding=dead_identity,
+                    event_observed=True,
                     remove=False,
                 ),
             }
@@ -223,7 +230,8 @@ def test_parent_category_edits_apply_only_to_changed_columns():
     )
 
     assert curated_df["Group"].tolist() == ["A", "B"]
-    assert curated_df["OS Event"].tolist() == ["0", "1"]
+    assert str(curated_df["OS Event"].dtype) == "boolean"
+    assert curated_df["OS Event"].tolist() == [False, True]
 
 
 def _materialize_parent_cleaner_state(*, dataset) -> None:
@@ -296,9 +304,13 @@ def test_cleaner_materializes_independent_inherited_state(
     curated_paths = StatomixLayout(
         root=target_bundle["config"]["path"]
     ).curated_artifacts()
+
+    expected_curated_df = target_df.copy()
+    expected_curated_df["OS Event"] = target_df["OS Event"].astype("boolean")
+
     assert_frame_equal(
         left=pd.read_parquet(curated_paths["df"]),
-        right=target_df,
+        right=expected_curated_df,
         check_dtype=True,
         check_exact=True,
     )

@@ -30,6 +30,14 @@ _EXPORTS = {
         "statomix.curation.survival.profiler",
         "get_survival_sematic_col_profile",
     ),
+    "normalize_survival_event_columns": (
+        "statomix.curation.survival.events",
+        "normalize_survival_event_columns",
+    ),
+    "parse_optional_event_observed": (
+        "statomix.curation.survival.events",
+        "parse_optional_event_observed",
+    ),
 }
 
 
@@ -55,4 +63,6 @@ __all__ = (
     "SurvivalSemanticProfile",
     "get_survival_semantic_col_profile",
     "get_survival_sematic_col_profile",
+    "normalize_survival_event_columns",
+    "parse_optional_event_observed",
 )

@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import ClassVar
 
 import pandas as pd
+from pandas.api.types import is_bool_dtype
 
 from statomix.core.tabular import frame_from_rows
 
@@ -268,7 +269,14 @@ class ColumnAudit:
             numeric_n = int(valid_numeric_series.size)
             nonnumeric_n = int(nonmissing_series.size - numeric_n)
 
-            if numeric_n == 0:
+            # Conversion diagnostics and measurement summaries are different:
+            # Boolean values can be numerically convertible without being
+            # continuous measurements suitable for interpolated quantiles.
+            boolean_values = is_bool_dtype(series.dtype) or is_bool_dtype(
+                valid_numeric_series.dtype
+            )
+
+            if numeric_n == 0 or boolean_values:
                 minimum = None
                 q1 = None
                 median = None

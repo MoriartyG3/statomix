@@ -1037,6 +1037,7 @@ class Cleaner(BasePipeline):
         # curated_data_group.attrs["meta"] = curated_data_meta
 
         surv_pairs_path = base_path / "surv_pairs.parquet"
+        surv_profiles_curated_path = base_path / "surv_profiles_curated.parquet"
         rename_mapping_path = req_base_path / "rename_mapping.yaml"
         col_edit_schema_path = req_base_path / "col_edit_schema.parquet"
         cat_meta_edit_schema_path = base_path / "cat_meta_edit_schema.parquet"
@@ -1053,6 +1054,14 @@ class Cleaner(BasePipeline):
         )
 
         surv_pairs = SurvPairs.load(path=surv_pairs_path)
+        survival_profiles = self.surv_meta_report.load_semantic_profiles(
+            path=surv_profiles_curated_path
+        )
+        survival_event_columns = tuple(
+            profile.col_name
+            for profile in survival_profiles.values()
+            if profile.col_type == SurvivalDataTypes.EVENT
+        )
 
         df = pd.read_parquet(path=self.df_path)
         df = apply_curation_schemas(
@@ -1061,6 +1070,7 @@ class Cleaner(BasePipeline):
             col_edit_schema=col_edit_schema,
             cat_meta_edit_schema=cat_meta_edit_schema,
             surv_cat_meta_edit_schema=surv_cat_meta_edit_schema,
+            survival_event_columns=survival_event_columns,
         )
         category_ranks = cat_meta_edit_schema.category_ranks
 
@@ -1092,6 +1102,13 @@ class Cleaner(BasePipeline):
         )
 
         config_meta["categorical_rank_metadata"] = rank_metadata
+        config_meta["survival_event_encoding"] = {
+            "columns": list(survival_event_columns),
+            "dtype": "boolean",
+            "false": "right_censored",
+            "true": "event_observed",
+            "missing": "unknown_or_removed",
+        }
 
         config_group.attrs["meta"] = config_meta
         group_bundle["config"]["meta"] = config_meta
