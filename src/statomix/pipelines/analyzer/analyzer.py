@@ -51,6 +51,13 @@ class Analyzer(BasePipeline):
             version=version,
             config_version=config_version,
         )
+        if (group_bundle["config"]["path"] / "input_artifact.json").is_file():
+            from statomix.pipelines.analyzer.artifact_inputs import load_binding
+
+            _, _, input_paths, _ = load_binding(self, group_bundle)
+            group_analyzer = GroupAnalyzer(paths=input_paths)
+            group_analyzer._get_surv_pairs()
+            return group_analyzer
         paths_file = StatomixLayout(
             root=group_bundle["config"]["path"]
         ).group_analyzer_paths()
@@ -125,6 +132,13 @@ class Analyzer(BasePipeline):
             version=version,
             config_version=config_version,
         )
+        config_path = BaseZARR.get_abs_path(group_bundle["config"]["group"])
+        if (config_path / "input_artifact.json").is_file():
+            from statomix.pipelines.analyzer.artifact_survival import (
+                create_artifact_survival_summary,
+            )
+
+            return create_artifact_survival_summary(self, group_bundle)
         group_analyzer = self._get_group_analyzer(
             version=version,
             config_version=config_version,

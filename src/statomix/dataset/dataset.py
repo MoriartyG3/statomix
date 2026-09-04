@@ -12,6 +12,8 @@ from statomix.dataset.base import BaseDataset
 from statomix.logging import get_logger
 from statomix.pipelines.analyzer.analyzer import Analyzer
 from statomix.pipelines.cleaner.cleaner import Cleaner
+from statomix.pipelines.transformer.transformer import Transformer
+from statomix.storage.artifacts import cleaner_artifact, project_root_for_dataset
 from statomix.storage.layout import StatomixLayout
 from statomix.storage.serializers import (
     load_analyzer_input_paths,
@@ -45,6 +47,45 @@ class Dataset(BaseDataset):
         self.analyzer = Analyzer(
             root_group=self.groups["analyzer"],
             dataset_name=dataset_name,
+        )
+        self.transformer = Transformer(
+            dataset_group=self.groups["root"],
+            dataset_name=dataset_name,
+            project_root=project_root_for_dataset(self),
+            project_name=self.cleaner.project_name,
+        )
+
+    def curated_artifact(
+        self,
+        *,
+        version,
+        config_version,
+        units=None,
+        endpoint_definitions=None,
+        reason="",
+    ):
+        """Snapshot a completed Cleaner output without rewriting its files."""
+        return cleaner_artifact(
+            self,
+            version=version,
+            config_version=config_version,
+            units=units,
+            endpoint_definitions=endpoint_definitions,
+            reason=reason,
+        )
+
+    def configure_analyzer_from_artifact(
+        self, *, source, version, config_version, survival_evaluation=None
+    ):
+        """Bind a new Analyzer configuration to an exact reusable artifact."""
+        from statomix.pipelines.analyzer.artifact_inputs import bind_artifact
+
+        return bind_artifact(
+            self,
+            source=source,
+            version=version,
+            config_version=config_version,
+            survival_evaluation=survival_evaluation,
         )
 
     def configure_analyzer(
@@ -95,6 +136,19 @@ class Dataset(BaseDataset):
             surv_pairs=curated_root / StatomixLayout.CURATED_SURV_PAIRS,
             col_profiles=curated_root / StatomixLayout.CURATED_COL_PROFILES,
         )
+
+        analyzer_root = BaseZARR.get_abs_path(self.analyzer.root_group)
+        artifact_binding = (
+            analyzer_root
+            / f"version{cleaner_version}"
+            / f"config{cleaner_config_version}"
+            / "input_artifact.json"
+        )
+        if artifact_binding.exists():
+            raise ValueError(
+                "This Analyzer configuration is artifact-bound; the legacy "
+                "Cleaner binding cannot replace it. Choose a new configuration."
+            )
 
         analyzer_bundle = self.analyzer._require_exact_group_bundle(
             version=cleaner_version,

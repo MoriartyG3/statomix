@@ -179,3 +179,28 @@ class Project:
                 )
         BaseExcel.format_cell_length(path=output_path)
         return output_path
+
+    def combine_datasets(
+        self,
+        *,
+        sources,
+        mappings,
+        identity_columns,
+        dataset_name,
+        display_label,
+        reason,
+        cohort_column="source_cohort",
+    ):
+        """Create a new dataset from exact artifact parents, with strict validation."""
+        from statomix.pipelines.transformer.project import combine_datasets
+
+        return combine_datasets(
+            self,
+            sources=sources,
+            mappings=mappings,
+            identity_columns=identity_columns,
+            dataset_name=dataset_name,
+            display_label=display_label,
+            reason=reason,
+            cohort_column=cohort_column,
+        )
