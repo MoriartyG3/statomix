@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
+from numbers import Integral, Real
 
 
 def finite_number(value, *, name: str) -> float:
@@ -48,6 +49,61 @@ class Unit:
 DAYS = Unit("days", "time", 1.0)
 MONTHS = Unit("months", "time", 365.25 / 12)
 DIMENSIONLESS = Unit("dimensionless", "dimensionless", 1.0)
+
+
+def _identifier_value(value):
+    """Normalize a JSON-safe identifier scalar without changing its kind."""
+
+    if isinstance(value, str):
+        if not value:
+            raise ValueError("Excluded identifier values must not be empty strings.")
+        return value
+    if isinstance(value, bool):
+        return bool(value)
+    if isinstance(value, Integral):
+        return int(value)
+    if isinstance(value, Real):
+        result = float(value)
+        if not math.isfinite(result):
+            raise ValueError("Excluded identifier values must be finite.")
+        return result
+    raise TypeError(
+        "Excluded identifier values must be strings, booleans, integers, "
+        f"or real numbers, not {type(value).__name__}."
+    )
+
+
+def encode_identifier_value(value):
+    """Serialize an identifier while retaining its scalar type."""
+
+    normalized = _identifier_value(value)
+    if isinstance(normalized, str):
+        kind = "string"
+    elif isinstance(normalized, bool):
+        kind = "boolean"
+    elif isinstance(normalized, int):
+        kind = "integer"
+    else:
+        kind = "real"
+    return {"type": kind, "value": normalized}
+
+
+def decode_identifier_value(record):
+    """Decode a typed identifier emitted by :func:`encode_identifier_value`."""
+
+    if not isinstance(record, dict) or set(record) != {"type", "value"}:
+        raise ValueError("Invalid typed identifier record.")
+    kind = record["type"]
+    value = _identifier_value(record["value"])
+    expected = {
+        "string": str,
+        "boolean": bool,
+        "integer": int,
+        "real": float,
+    }.get(kind)
+    if expected is None or type(value) is not expected:
+        raise ValueError("Identifier type tag does not match its value.")
+    return value
 
 
 def _common(output, mode, reason):
@@ -135,6 +191,41 @@ class ConvertUnit:
         return {"kind": "convert_unit", **asdict(self)}
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ExcludeRows:
+    """Remove rows selected by complete values in one Identifier column."""
+
+    identifier: str
+    values: tuple[object, ...]
+    reason: str
+
+    def __post_init__(self):
+        if not isinstance(self.identifier, str) or not self.identifier.strip():
+            raise ValueError("identifier must be a nonempty column name.")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("A row-exclusion reason is required.")
+        if isinstance(self.values, (str, bytes)):
+            raise TypeError("values must be a sequence, not one string.")
+        values = tuple(_identifier_value(value) for value in self.values)
+        if not values:
+            raise ValueError("At least one identifier value must be supplied.")
+        identities = {
+            (record["type"], record["value"])
+            for record in map(encode_identifier_value, values)
+        }
+        if len(identities) != len(values):
+            raise ValueError("Excluded identifier values must be unique.")
+        object.__setattr__(self, "values", values)
+
+    def to_dict(self):
+        return {
+            "kind": "exclude_rows",
+            "identifier": self.identifier,
+            "values": [encode_identifier_value(value) for value in self.values],
+            "reason": self.reason,
+        }
+
+
 def operation_from_dict(data):
     payload = dict(data)
     kind = payload.pop("kind")
@@ -146,4 +237,9 @@ def operation_from_dict(data):
         return Affine(**payload)
     if kind == "ratio":
         return Ratio(**payload)
+    if kind == "exclude_rows":
+        payload["values"] = tuple(
+            decode_identifier_value(record) for record in payload["values"]
+        )
+        return ExcludeRows(**payload)
     raise ValueError(f"Unknown transformation: {kind!r}")

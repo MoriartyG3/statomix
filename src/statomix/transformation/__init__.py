@@ -6,8 +6,18 @@ from .specifications import (
     MONTHS,
     Affine,
     ConvertUnit,
+    ExcludeRows,
     Ratio,
     Unit,
 )
 
-__all__ = ["DAYS", "MONTHS", "DIMENSIONLESS", "Affine", "Ratio", "ConvertUnit", "Unit"]
+__all__ = [
+    "DAYS",
+    "MONTHS",
+    "DIMENSIONLESS",
+    "Affine",
+    "Ratio",
+    "ConvertUnit",
+    "ExcludeRows",
+    "Unit",
+]

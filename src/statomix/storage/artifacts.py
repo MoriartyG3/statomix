@@ -198,7 +198,15 @@ def artifact_lock(directory: Path):
 
 
 def publish_artifact(
-    *, project_root, destination, state, identity, parents, specification, audit
+    *,
+    project_root,
+    destination,
+    state,
+    identity,
+    parents,
+    specification,
+    audit,
+    exclusions=(),
 ):
     """Called under the producer lock. Rename a complete staged directory once."""
     if destination.exists():
@@ -215,6 +223,7 @@ def publish_artifact(
         write_transformation_report(
             path=staging / "audit.xlsx",
             audit=audit,
+            exclusions=exclusions,
             parents=parents,
             specification=specification,
         )
@@ -227,6 +236,12 @@ def publish_artifact(
             "specification": "specification.json",
             "audit": "audit.xlsx",
         }
+        if exclusions:
+            pd.DataFrame(exclusions).to_parquet(
+                staging / "excluded_rows.parquet",
+                index=False,
+            )
+            filenames["exclusions"] = "excluded_rows.parquet"
         files = {
             key: {
                 "path": (destination / filename).relative_to(project_root).as_posix(),

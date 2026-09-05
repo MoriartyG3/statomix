@@ -7,7 +7,7 @@ import pandas as pd
 from statomix.core.artifacts import canonical_json
 
 
-def write_transformation_report(*, path, audit, parents, specification):
+def write_transformation_report(*, path, audit, parents, specification, exclusions=()):
     parent_rows = []
     for position, parent in enumerate(parents):
         manifest = parent.manifest
@@ -23,6 +23,12 @@ def write_transformation_report(*, path, audit, parents, specification):
             )
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         pd.DataFrame(audit).to_excel(writer, sheet_name="Operations", index=False)
+        if exclusions:
+            pd.DataFrame(exclusions).to_excel(
+                writer,
+                sheet_name="Excluded Rows",
+                index=False,
+            )
         pd.DataFrame(parent_rows).to_excel(writer, sheet_name="Parents", index=False)
         # Split long specifications before Excel's cell-length limit.
         records = []

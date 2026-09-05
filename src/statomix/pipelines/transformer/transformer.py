@@ -17,7 +17,10 @@ from statomix.storage.artifacts import (
 )
 from statomix.transformation.columns import apply_operations
 from statomix.transformation.concatenation import concatenate_states
-from statomix.transformation.specifications import operation_from_dict
+from statomix.transformation.operations import (
+    apply_operations as apply_mixed_operations,
+)
+from statomix.transformation.specifications import ExcludeRows, operation_from_dict
 
 
 class Transformer:
@@ -67,7 +70,13 @@ class Transformer:
         operations = tuple(operation_from_dict(op.to_dict()) for op in operations)
         specification = {
             "schema_version": 1,
-            "kind": "columns",
+            # Preserve the v1 identity of plans containing only the original
+            # row-preserving column operations.
+            "kind": (
+                "operations"
+                if any(isinstance(operation, ExcludeRows) for operation in operations)
+                else "columns"
+            ),
             "name": name,
             "operations": [op.to_dict() for op in operations],
         }
@@ -148,8 +157,14 @@ class Transformer:
             states = [load_artifact(p) for p in parents]
             for state in states:
                 state.pairs.require_supported(operation="Transformer")
+            exclusions = []
             if specification["kind"] == "columns":
                 state, audit = apply_operations(
+                    states[0],
+                    [operation_from_dict(op) for op in specification["operations"]],
+                )
+            elif specification["kind"] == "operations":
+                state, audit, exclusions = apply_mixed_operations(
                     states[0],
                     [operation_from_dict(op) for op in specification["operations"]],
                 )
@@ -180,6 +195,7 @@ class Transformer:
                 parents=parents,
                 specification=specification,
                 audit=audit,
+                exclusions=exclusions,
             )
             config_group.attrs["meta"] = {
                 "status": "completed",
