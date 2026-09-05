@@ -17,12 +17,12 @@ STAGES = {
     "report": 4,
 }
 COLORS = {
-    "source": "#334155",
-    "cleaner": "#2563eb",
-    "reference": "#7c3aed",
-    "transformer": "#059669",
-    "analyzer": "#d97706",
-    "report": "#64748b",
+    "source": "#22221e",
+    "cleaner": "#3f6f85",
+    "reference": "#7c5bb5",
+    "transformer": "#3c8066",
+    "analyzer": "#a96720",
+    "report": "#77766d",
 }
 
 
@@ -34,48 +34,37 @@ def _layout(history: ProjectHistory):
 
     positions = {}
     lane_bounds = {}
-    display_labels = {
-        dataset: next(
-            (node.display_label for node in grouped[dataset] if node.display_label),
-            dataset,
-        )
-        for dataset in datasets
-    }
-    lane_header = 42
     y_cursor = 70
     for dataset in datasets:
         by_stage = defaultdict(list)
         for node in grouped[dataset]:
             by_stage[STAGES.get(node.node_type, 2)].append(node)
         maximum = max((len(values) for values in by_stage.values()), default=1)
-        lane_height = max(170, lane_header + 30 + maximum * 92)
+        lane_height = max(150, 55 + maximum * 92)
         lane_bounds[dataset] = (y_cursor, lane_height)
         for stage, nodes in by_stage.items():
             for index, node in enumerate(sorted(nodes, key=lambda item: item.node_id)):
                 positions[node.node_id] = (
                     190 + stage * 270,
-                    y_cursor + lane_header + 28 + index * 92,
+                    y_cursor + 48 + index * 92,
                 )
         y_cursor += lane_height + 18
-    return (
-        positions,
-        lane_bounds,
-        datasets,
-        display_labels,
-        y_cursor,
-    )
+    display_labels = {}
+    for node in history.nodes:
+        dataset = node.dataset or "Project"
+        display_labels.setdefault(
+            dataset,
+            getattr(node, "display_label", None)
+            or getattr(node, "dataset_label", None)
+            or dataset,
+        )
+    return positions, lane_bounds, datasets, display_labels, y_cursor
 
 
 def render_history_svg(*, history: ProjectHistory, destination: Path) -> None:
     """Write a static SVG suitable for documentation."""
 
-    (
-        positions,
-        lane_bounds,
-        datasets,
-        display_labels,
-        height,
-    ) = _layout(history)
+    positions, lane_bounds, datasets, display_labels, height = _layout(history)
     width = 1450
     parts = [
         (
@@ -84,17 +73,18 @@ def render_history_svg(*, history: ProjectHistory, destination: Path) -> None:
         ),
         "<style>",
         "text{font-family:Inter,Arial,sans-serif}",
-        ".lane{fill:#f8fafc;stroke:#e2e8f0}",
-        ".edge{stroke:#94a3b8;stroke-width:1.6;fill:none}",
-        ".edge-label{font-size:10px;fill:#475569}",
+        ".lane{fill:#fbfaf5;stroke:#d9d5ca}",
+        ".edge{stroke:#8c8a81;stroke-width:1.7;fill:none}",
+        ".edge-label-bg{fill:#fff;stroke:#d9d5ca;stroke-width:1}",
+        ".edge-label{font-size:10px;fill:#6d6a60;font-weight:700}",
         ".node-label{font-size:12px;fill:white;font-weight:600}",
-        ".lane-label{font-size:14px;fill:#0f172a;font-weight:700}",
-        ".stage-label{font-size:12px;fill:#475569;font-weight:600}",
+        ".lane-label{font-size:14px;fill:#171714;font-weight:700}",
+        ".stage-label{font-size:12px;fill:#6d6a60;font-weight:700}",
         "</style>",
         (
             '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" '
             'refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
-            '<path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>'
+            '<path d="M 0 0 L 10 5 L 0 10 z" fill="#8c8a81"/>'
             "</marker></defs>"
         ),
         f'<text x="24" y="30" font-size="20" font-weight="700">{escape(history.project_name)} — artifact lineage</text>',
@@ -136,12 +126,6 @@ def render_history_svg(*, history: ProjectHistory, destination: Path) -> None:
             f'd="M {start_x} {source_y} C {middle_x} {source_y}, '
             f'{middle_x} {target_y}, {end_x} {target_y}"/>'
         )
-        parts.append(
-            f'<text class="edge-label" x="{middle_x}" '
-            f'y="{(source_y + target_y) / 2 - 4}" text-anchor="middle">'
-            f"{escape(edge.relationship)}</text>"
-        )
-
     for node in history.nodes:
         x, y = positions[node.node_id]
         color = COLORS.get(node.node_type, "#475569")
@@ -162,6 +146,24 @@ def render_history_svg(*, history: ProjectHistory, destination: Path) -> None:
                 f'text-anchor="middle">{escape(line[:31])}</text>'
             )
         parts.append("</g>")
+
+    # Render labels after nodes and give them an opaque pill background.
+    for edge in history.edges:
+        if edge.source not in positions or edge.target not in positions:
+            continue
+        source_x, source_y = positions[edge.source]
+        target_x, target_y = positions[edge.target]
+        middle_x = (source_x + target_x) / 2
+        label_y = (source_y + target_y) / 2 - 4
+        label_width = max(48, len(edge.relationship) * 6 + 12)
+        parts.append(
+            f'<rect class="edge-label-bg" x="{middle_x - label_width / 2}" '
+            f'y="{label_y - 11}" width="{label_width}" height="18" rx="8"/>'
+        )
+        parts.append(
+            f'<text class="edge-label" x="{middle_x}" y="{label_y + 2}" '
+            f'text-anchor="middle">{escape(edge.relationship)}</text>'
+        )
 
     parts.append("</svg>")
     destination.write_text("\n".join(parts), encoding="utf-8")
