@@ -309,3 +309,21 @@ class Project:
             reason=reason,
             cohort_column=cohort_column,
         )
+
+    def create_history_report(
+        self,
+        *,
+        output_dir: str | Path,
+        verify_checksums: bool = True,
+        include_files: bool = False,
+    ):
+        """Create a read-only, external report of project provenance."""
+
+        from statomix.history import create_history_report
+
+        return create_history_report(
+            project=self,
+            output_dir=output_dir,
+            verify_checksums=verify_checksums,
+            include_files=include_files,
+        )
