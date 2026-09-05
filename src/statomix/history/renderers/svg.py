@@ -34,28 +34,48 @@ def _layout(history: ProjectHistory):
 
     positions = {}
     lane_bounds = {}
+    display_labels = {
+        dataset: next(
+            (node.display_label for node in grouped[dataset] if node.display_label),
+            dataset,
+        )
+        for dataset in datasets
+    }
+    lane_header = 42
     y_cursor = 70
     for dataset in datasets:
         by_stage = defaultdict(list)
         for node in grouped[dataset]:
             by_stage[STAGES.get(node.node_type, 2)].append(node)
         maximum = max((len(values) for values in by_stage.values()), default=1)
-        lane_height = max(150, 55 + maximum * 92)
+        lane_height = max(170, lane_header + 30 + maximum * 92)
         lane_bounds[dataset] = (y_cursor, lane_height)
         for stage, nodes in by_stage.items():
             for index, node in enumerate(sorted(nodes, key=lambda item: item.node_id)):
                 positions[node.node_id] = (
                     190 + stage * 270,
-                    y_cursor + 48 + index * 92,
+                    y_cursor + lane_header + 28 + index * 92,
                 )
         y_cursor += lane_height + 18
-    return positions, lane_bounds, datasets, y_cursor
+    return (
+        positions,
+        lane_bounds,
+        datasets,
+        display_labels,
+        y_cursor,
+    )
 
 
 def render_history_svg(*, history: ProjectHistory, destination: Path) -> None:
     """Write a static SVG suitable for documentation."""
 
-    positions, lane_bounds, datasets, height = _layout(history)
+    (
+        positions,
+        lane_bounds,
+        datasets,
+        display_labels,
+        height,
+    ) = _layout(history)
     width = 1450
     parts = [
         (
@@ -99,7 +119,8 @@ def render_history_svg(*, history: ProjectHistory, destination: Path) -> None:
             f'height="{lane_height}" rx="10"/>'
         )
         parts.append(
-            f'<text class="lane-label" x="26" y="{top + 27}">{escape(dataset)}</text>'
+            f'<text class="lane-label" x="26" y="{top + 27}">'
+            f"{escape(display_labels[dataset])}</text>"
         )
 
     for edge in history.edges:
