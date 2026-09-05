@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -148,6 +149,89 @@ class Project:
                 message,
             )
             logger.debug(str(exc))
+
+    def set_dataset_role(
+        self,
+        *,
+        dataset_name: str,
+        dataset_role: str,
+        reason: str,
+    ) -> Dataset:
+        """Persist an audited change to a dataset's analytical purpose.
+
+        A role transition changes eligibility for future operations. It does
+        not rewrite the source dataframe or remove existing pipeline artifacts.
+        """
+
+        if not isinstance(dataset_name, str):
+            raise TypeError("dataset_name must be a string")
+
+        normalized_name = dataset_name.strip()
+        if not normalized_name:
+            raise ValueError("dataset_name must not be empty")
+
+        if not isinstance(reason, str):
+            raise TypeError("reason must be a string")
+
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ValueError("A dataset-role transition reason is required.")
+
+        resolved_role = normalize_dataset_role(dataset_role)
+
+        if normalized_name not in self.datasets:
+            raise KeyError(
+                f"Dataset {normalized_name!r} is not registered in "
+                f"project {self.project_name!r}."
+            )
+
+        dataset = self.datasets[normalized_name]
+        previous_role = dataset.dataset_role
+
+        if previous_role == resolved_role:
+            logger.info(
+                "Dataset '%s' already has dataset_role=%r; no role "
+                "transition was recorded.",
+                normalized_name,
+                resolved_role,
+            )
+            return dataset
+
+        dataset_group = dataset.groups["root"]
+        existing_history = list(dataset_group.attrs.get("dataset_role_history", []))
+        transition = {
+            "sequence": len(existing_history) + 1,
+            "changed_at_utc": datetime.now(UTC).isoformat(),
+            "previous_role": previous_role,
+            "dataset_role": resolved_role,
+            "reason": normalized_reason,
+        }
+
+        project_datasets_meta = dict(self.groups["root"].attrs.get("datasets", {}))
+        dataset_meta = dict(project_datasets_meta.get(normalized_name, {}))
+
+        dataset_group.attrs["dataset_role"] = resolved_role
+        dataset_group.attrs["dataset_role_history"] = [
+            *existing_history,
+            transition,
+        ]
+
+        dataset._dataset_role = resolved_role
+        dataset.analyzer.dataset_role = resolved_role
+        dataset.reference.dataset_role = resolved_role
+
+        dataset_meta["dataset_role"] = resolved_role
+        project_datasets_meta[normalized_name] = dataset_meta
+        self.groups["root"].attrs["datasets"] = project_datasets_meta
+
+        logger.info(
+            "Changed dataset '%s' role from %r to %r. Reason: %s",
+            normalized_name,
+            previous_role,
+            resolved_role,
+            normalized_reason,
+        )
+        return dataset
 
     def _discover_datasets(self) -> None:
         self.datasets: dict[str, Dataset] = {}
