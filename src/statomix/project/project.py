@@ -12,6 +12,7 @@ from pandas.testing import assert_frame_equal
 
 from statomix.dataset.base import normalize_display_label
 from statomix.dataset.dataset import Dataset
+from statomix.dataset.roles import normalize_dataset_role
 from statomix.logging import get_logger
 from statomix.project.analyzer.analyzer import Analyzer
 
@@ -68,15 +69,23 @@ class Project:
         df: pd.DataFrame | None,
         dataset_name: str,
         display_label: str | None = None,
+        dataset_role: str = "analysis",
     ) -> Dataset | None:
 
         resolved_display_label = normalize_display_label(
             dataset_name if display_label is None else display_label
         )
+        resolved_dataset_role = normalize_dataset_role(dataset_role)
 
         project_datasets_meta = dict(self.groups["root"].attrs.get("datasets", {}))
         existing_meta = project_datasets_meta.get(dataset_name)
         if existing_meta and existing_meta.get("created_successfully"):
+            existing_role = self.datasets[dataset_name].dataset_role
+            if resolved_dataset_role != existing_role:
+                raise RuntimeError(
+                    f"Dataset {dataset_name!r} already has "
+                    f"dataset_role={existing_role!r}."
+                )
             self._report_existing_dataset(df=df, dataset_name=dataset_name)
             return None
 
@@ -88,6 +97,7 @@ class Project:
                 df=df,
                 dataset_name=dataset_name,
                 display_label=resolved_display_label,
+                dataset_role=resolved_dataset_role,
                 root_group=self.groups["datasets_root"],
             )
         except Exception as exc:
@@ -100,7 +110,10 @@ class Project:
             raise
 
         self.datasets[dataset_name] = dataset
-        project_datasets_meta[dataset_name] = {"created_successfully": True}
+        project_datasets_meta[dataset_name] = {
+            "created_successfully": True,
+            "dataset_role": dataset.dataset_role,
+        }
         self.groups["root"].attrs["datasets"] = project_datasets_meta
         logger.info(
             "Dataset '%s' successfully initialized and registered.",
@@ -165,8 +178,16 @@ class Project:
             logger.info("Datatype map overview already exists at %s.", output_path)
             return output_path
 
+        analysis_datasets = {
+            name: dataset
+            for name, dataset in self.datasets.items()
+            if dataset.dataset_role == "analysis"
+        }
+        if not analysis_datasets:
+            raise ValueError("No analysis datasets are available for this overview.")
+
         with pd.ExcelWriter(path=output_path, engine="openpyxl") as writer:
-            for dataset_name, dataset in self.datasets.items():
+            for dataset_name, dataset in analysis_datasets.items():
                 group_analyzer = dataset.analyzer._get_group_analyzer(
                     version=version,
                     config_version=config_version,

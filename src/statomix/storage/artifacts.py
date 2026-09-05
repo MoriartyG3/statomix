@@ -39,6 +39,7 @@ def execution_fingerprint():
     for folder in (
         "transformation",
         "pipelines/transformer",
+        "pipelines/reference",
         "curation/columns",
         "curation/survival",
     ):
@@ -209,6 +210,7 @@ def publish_artifact(
     exclusions=(),
     column_updates=(),
     unused_updates=(),
+    linked_files=None,
 ):
     """Called under the producer lock. Rename a complete staged directory once."""
     if destination.exists():
@@ -269,6 +271,20 @@ def publish_artifact(
             }
             for key, filename in filenames.items()
         }
+        linked_files = dict(linked_files or {})
+        duplicate_file_keys = set(files).intersection(linked_files)
+        if duplicate_file_keys:
+            raise ValueError(
+                "Linked-file names collide with generated artifact files: "
+                f"{sorted(duplicate_file_keys)!r}."
+            )
+        for key, path in linked_files.items():
+            linked_path = Path(path).resolve()
+            relative_path = linked_path.relative_to(Path(project_root).resolve())
+            files[key] = {
+                "path": relative_path.as_posix(),
+                "sha256": sha256_file(path=linked_path),
+            }
         manifest = {
             "schema_version": 1,
             "status": "completed",

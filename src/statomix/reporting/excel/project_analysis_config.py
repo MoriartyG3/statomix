@@ -28,6 +28,8 @@ def sanitize(name: str) -> str:
 def build_long_format_table(project, version, config_version) -> pd.DataFrame:
     frames = []
     for dataset_name, dataset in project.datasets.items():
+        if dataset.dataset_role == "reference":
+            continue
         group_analyzer = dataset.analyzer._get_group_analyzer(
             version=version, config_version=config_version
         )
@@ -42,7 +44,7 @@ def build_long_format_table(project, version, config_version) -> pd.DataFrame:
         frames.append(melted)
 
     if not frames:
-        raise ValueError("project.datasets is empty - nothing to write.")
+        raise ValueError("No analysis datasets are available - nothing to write.")
 
     long_df = pd.concat(frames, ignore_index=True)
     long_df = long_df.drop_duplicates(

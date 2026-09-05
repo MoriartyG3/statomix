@@ -12,6 +12,7 @@ from statomix.dataset.base import BaseDataset
 from statomix.logging import get_logger
 from statomix.pipelines.analyzer.analyzer import Analyzer
 from statomix.pipelines.cleaner.cleaner import Cleaner
+from statomix.pipelines.reference.reference import ReferenceArtifactBuilder
 from statomix.pipelines.transformer.transformer import Transformer
 from statomix.storage.artifacts import cleaner_artifact, project_root_for_dataset
 from statomix.storage.layout import StatomixLayout
@@ -32,12 +33,14 @@ class Dataset(BaseDataset):
         root_group: Any,
         df: pd.DataFrame | None = None,
         display_label: str | None = None,
+        dataset_role: str | None = None,
     ) -> None:
         super().__init__(
             dataset_name=dataset_name,
             root_group=root_group,
             df=df,
             display_label=display_label,
+            dataset_role=dataset_role,
         )
         self.cleaner = Cleaner(
             df_path=self.paths["df"]["source"],
@@ -47,6 +50,7 @@ class Dataset(BaseDataset):
         self.analyzer = Analyzer(
             root_group=self.groups["analyzer"],
             dataset_name=dataset_name,
+            dataset_role=self.dataset_role,
         )
         self.transformer = Transformer(
             dataset_group=self.groups["root"],
@@ -54,6 +58,51 @@ class Dataset(BaseDataset):
             project_root=project_root_for_dataset(self),
             project_name=self.cleaner.project_name,
         )
+        self.reference = ReferenceArtifactBuilder(
+            dataset_group=self.groups["root"],
+            dataset_name=dataset_name,
+            project_root=project_root_for_dataset(self),
+            project_name=self.cleaner.project_name,
+            source_path=self.paths["df"]["source"],
+            dataset_role=self.dataset_role,
+        )
+
+    def create_reference_artifact(
+        self,
+        *,
+        version,
+        config_version,
+        identifier,
+        column_mapping,
+        event_columns,
+        duration_units,
+        endpoints,
+        reason,
+        column_types=None,
+        name="",
+    ):
+        """Create an explicit artifact without running Cleaner."""
+
+        return self.reference.create_artifact(
+            version=version,
+            config_version=config_version,
+            identifier=identifier,
+            column_mapping=column_mapping,
+            event_columns=event_columns,
+            duration_units=duration_units,
+            endpoints=endpoints,
+            reason=reason,
+            column_types=column_types,
+            name=name,
+        )
+
+    def _require_analysis_dataset(self) -> None:
+        if self.dataset_role != "analysis":
+            raise PermissionError(
+                f"Dataset {self.dataset_name!r} has "
+                f"dataset_role={self.dataset_role!r} and is not "
+                "eligible for direct analysis."
+            )
 
     def curated_artifact(
         self,
@@ -78,6 +127,7 @@ class Dataset(BaseDataset):
         self, *, source, version, config_version, survival_evaluation=None
     ):
         """Bind a new Analyzer configuration to an exact reusable artifact."""
+        self._require_analysis_dataset()
         from statomix.pipelines.analyzer.artifact_inputs import bind_artifact
 
         return bind_artifact(
@@ -95,6 +145,7 @@ class Dataset(BaseDataset):
     ) -> dict[str, dict[str, Any]]:
         """Bind Analyzer inputs to one exact completed Cleaner configuration."""
 
+        self._require_analysis_dataset()
         cleaner_bundle = self.cleaner._find_group_bundle(
             version=version,
             config_version=config_version,

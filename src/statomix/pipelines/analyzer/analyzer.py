@@ -29,7 +29,13 @@ logger = get_logger(name="dataset_analyzer")
 class Analyzer(BasePipeline):
     """Coordinate persisted reports for one dataset."""
 
-    def __init__(self, root_group: Any, dataset_name: str) -> None:
+    def __init__(
+        self,
+        root_group: Any,
+        dataset_name: str,
+        dataset_role: str = "analysis",
+    ) -> None:
+        self.dataset_role = dataset_role
         super().__init__(
             root_group=root_group,
             dataset_name=dataset_name,
@@ -47,6 +53,12 @@ class Analyzer(BasePipeline):
         version: int | None,
         config_version: int | None,
     ) -> GroupAnalyzer:
+        if self.dataset_role != "analysis":
+            raise PermissionError(
+                f"Dataset {self.dataset_name!r} has "
+                f"dataset_role={self.dataset_role!r} and is not "
+                "eligible for direct analysis."
+            )
         group_bundle = self._find_group_bundle(
             version=version,
             config_version=config_version,

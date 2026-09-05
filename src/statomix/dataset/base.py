@@ -9,6 +9,7 @@ from fileverse.formats.zarr import BaseZARR
 from pandas.testing import assert_frame_equal
 
 from statomix.core.errors import ArtifactNotFoundError
+from statomix.dataset.roles import DEFAULT_DATASET_ROLE, normalize_dataset_role
 from statomix.logging import get_logger
 from statomix.storage.layout import StatomixLayout
 
@@ -38,6 +39,7 @@ class BaseDataset:
         root_group: Any,
         df: pd.DataFrame | None = None,
         display_label: str | None = None,
+        dataset_role: str | None = None,
     ) -> None:
         if not dataset_name.strip():
             raise ValueError("dataset_name must not be empty")
@@ -46,6 +48,9 @@ class BaseDataset:
             normalize_display_label(display_label)
             if display_label is not None
             else None
+        )
+        requested_dataset_role = (
+            normalize_dataset_role(dataset_role) if dataset_role is not None else None
         )
 
         self.dataset_name = dataset_name
@@ -56,6 +61,7 @@ class BaseDataset:
         self._initialize_display_label(
             display_label=requested_display_label,
         )
+        self._initialize_dataset_role(dataset_role=requested_dataset_role)
 
     @property
     def display_label(self) -> str:
@@ -109,6 +115,31 @@ class BaseDataset:
             previous_label,
             normalized_label,
         )
+
+    @property
+    def dataset_role(self) -> str:
+        """Persistent purpose controlling analytical eligibility."""
+
+        return self._dataset_role
+
+    def _initialize_dataset_role(self, *, dataset_role: str | None) -> None:
+        """Load an existing role or initialize a newly registered dataset."""
+
+        stored = self.groups["root"].attrs.get("dataset_role")
+
+        if stored is None:
+            resolved = dataset_role or DEFAULT_DATASET_ROLE
+            self.groups["root"].attrs["dataset_role"] = resolved
+        else:
+            resolved = normalize_dataset_role(stored)
+
+            if dataset_role is not None and dataset_role != resolved:
+                raise RuntimeError(
+                    f"Dataset {self.dataset_name!r} already has "
+                    f"dataset_role={resolved!r}; received {dataset_role!r}."
+                )
+
+        self._dataset_role = resolved
 
     def _create_groups(self, *, root_group: Any) -> None:
         self.groups: dict[str, Any] = {}

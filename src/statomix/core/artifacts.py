@@ -56,7 +56,7 @@ class DatasetArtifactRef:
         for field in ("version", "config_version"):
             if type(data[field]) is not int or data[field] < 1:
                 raise ValueError(f"Invalid {field}.")
-        if data["pipeline"] not in {"cleaner", "transformer"}:
+        if data["pipeline"] not in {"cleaner", "reference", "transformer"}:
             raise ValueError("Unknown artifact producer.")
         if not {"df", "surv_pairs", "col_profiles"}.issubset(data["files"]):
             raise ValueError("Artifact is missing required files.")
