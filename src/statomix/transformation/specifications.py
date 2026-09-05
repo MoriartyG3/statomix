@@ -226,6 +226,155 @@ class ExcludeRows:
         }
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UpdateColumnsByKey:
+    """Replace base columns from a second artifact using exact identifiers."""
+
+    base_key: str
+    update_key: str
+    column_mapping: tuple[tuple[str, str], ...]
+    endpoint_mapping: tuple[tuple[str, str], ...]
+    reason: str
+
+    def __post_init__(self):
+        for field_name, value in (
+            ("base_key", self.base_key),
+            ("update_key", self.update_key),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field_name} must be a nonempty column name.")
+
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("A keyed-update reason is required.")
+
+        column_mapping = tuple(tuple(pair) for pair in self.column_mapping)
+
+        if not column_mapping:
+            raise ValueError("At least one column mapping is required.")
+
+        if any(len(pair) != 2 for pair in column_mapping):
+            raise ValueError(
+                "Each column mapping must contain " "(target_column, update_column)."
+            )
+
+        for target, source in column_mapping:
+            if (
+                not isinstance(target, str)
+                or not target.strip()
+                or not isinstance(source, str)
+                or not source.strip()
+            ):
+                raise ValueError("Mapped column names must be nonempty strings.")
+
+        target_columns = [target for target, _ in column_mapping]
+
+        update_columns = [source for _, source in column_mapping]
+
+        if len(set(target_columns)) != len(target_columns):
+            raise ValueError("Each target column may be updated only once.")
+
+        if len(set(update_columns)) != len(update_columns):
+            raise ValueError("Each update-source column may be used only once.")
+
+        if self.base_key in target_columns:
+            raise ValueError("The base Identifier column cannot be replaced.")
+
+        if self.update_key in update_columns:
+            raise ValueError(
+                "The update Identifier column cannot be used "
+                "as a replacement value column."
+            )
+
+        endpoint_mapping = tuple(tuple(pair) for pair in self.endpoint_mapping)
+
+        if any(len(pair) != 2 for pair in endpoint_mapping):
+            raise ValueError(
+                "Each endpoint mapping must contain "
+                "(base_endpoint, update_endpoint)."
+            )
+
+        for base_endpoint, update_endpoint in endpoint_mapping:
+            if (
+                not isinstance(base_endpoint, str)
+                or not base_endpoint.strip()
+                or not isinstance(update_endpoint, str)
+                or not update_endpoint.strip()
+            ):
+                raise ValueError("Mapped endpoint labels must be nonempty strings.")
+
+        base_endpoints = [base_endpoint for base_endpoint, _ in endpoint_mapping]
+
+        update_endpoints = [update_endpoint for _, update_endpoint in endpoint_mapping]
+
+        if len(set(base_endpoints)) != len(base_endpoints):
+            raise ValueError("Each base endpoint may be mapped only once.")
+
+        if len(set(update_endpoints)) != len(update_endpoints):
+            raise ValueError("Each update endpoint may be mapped only once.")
+
+        object.__setattr__(
+            self,
+            "column_mapping",
+            column_mapping,
+        )
+
+        object.__setattr__(
+            self,
+            "endpoint_mapping",
+            endpoint_mapping,
+        )
+
+    def to_dict(self):
+        return {
+            "kind": "keyed_update",
+            "base_key": self.base_key,
+            "update_key": self.update_key,
+            "column_mapping": [
+                {
+                    "target": target,
+                    "source": source,
+                }
+                for target, source in self.column_mapping
+            ],
+            "endpoint_mapping": [
+                {
+                    "base": base_endpoint,
+                    "update": update_endpoint,
+                }
+                for base_endpoint, update_endpoint in self.endpoint_mapping
+            ],
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data,
+    ):
+        if data.get("kind") != "keyed_update":
+            raise ValueError("Expected a keyed_update specification.")
+
+        return cls(
+            base_key=data["base_key"],
+            update_key=data["update_key"],
+            column_mapping=tuple(
+                (
+                    record["target"],
+                    record["source"],
+                )
+                for record in data["column_mapping"]
+            ),
+            endpoint_mapping=tuple(
+                (
+                    record["base"],
+                    record["update"],
+                )
+                for record in data.get("endpoint_mapping", [])
+            ),
+            reason=data["reason"],
+        )
+
+
 def operation_from_dict(data):
     payload = dict(data)
     kind = payload.pop("kind")

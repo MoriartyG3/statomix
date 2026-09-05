@@ -7,7 +7,16 @@ import pandas as pd
 from statomix.core.artifacts import canonical_json
 
 
-def write_transformation_report(*, path, audit, parents, specification, exclusions=()):
+def write_transformation_report(
+    *,
+    path,
+    audit,
+    parents,
+    specification,
+    exclusions=(),
+    column_updates=(),
+    unused_updates=(),
+):
     parent_rows = []
     for position, parent in enumerate(parents):
         manifest = parent.manifest
@@ -27,6 +36,20 @@ def write_transformation_report(*, path, audit, parents, specification, exclusio
             pd.DataFrame(exclusions).to_excel(
                 writer,
                 sheet_name="Excluded Rows",
+                index=False,
+            )
+
+        if column_updates:
+            pd.DataFrame(column_updates).to_excel(
+                writer,
+                sheet_name="Column Updates",
+                index=False,
+            )
+
+        if unused_updates:
+            pd.DataFrame(unused_updates).to_excel(
+                writer,
+                sheet_name="Unused Update Rows",
                 index=False,
             )
         pd.DataFrame(parent_rows).to_excel(writer, sheet_name="Parents", index=False)

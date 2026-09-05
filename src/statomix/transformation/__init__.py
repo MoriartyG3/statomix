@@ -9,6 +9,7 @@ from .specifications import (
     ExcludeRows,
     Ratio,
     Unit,
+    UpdateColumnsByKey,
 )
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "Ratio",
     "ConvertUnit",
     "ExcludeRows",
+    "UpdateColumnsByKey",
     "Unit",
 ]

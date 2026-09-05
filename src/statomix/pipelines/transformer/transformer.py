@@ -17,10 +17,17 @@ from statomix.storage.artifacts import (
 )
 from statomix.transformation.columns import apply_operations
 from statomix.transformation.concatenation import concatenate_states
+from statomix.transformation.keyed_updates import (
+    apply_keyed_update,
+)
 from statomix.transformation.operations import (
     apply_operations as apply_mixed_operations,
 )
-from statomix.transformation.specifications import ExcludeRows, operation_from_dict
+from statomix.transformation.specifications import (
+    ExcludeRows,
+    UpdateColumnsByKey,
+    operation_from_dict,
+)
 
 
 class Transformer:
@@ -82,6 +89,64 @@ class Transformer:
         }
         return self._create(
             parents=(source,),
+            specification=specification,
+            version=version,
+            config_version=config_version,
+        )
+
+    def create_keyed_update_data(
+        self,
+        *,
+        base,
+        updates,
+        base_key: str,
+        update_key: str,
+        column_mapping,
+        endpoint_mapping,
+        version: int,
+        config_version: int,
+        reason: str,
+        name: str = "",
+    ):
+        """Replace base columns from a second artifact by exact key."""
+
+        if not hasattr(
+            column_mapping,
+            "items",
+        ):
+            raise TypeError(
+                "column_mapping must be a mapping from "
+                "base target columns to update-source columns."
+            )
+
+        if not hasattr(
+            endpoint_mapping,
+            "items",
+        ):
+            raise TypeError(
+                "endpoint_mapping must be a mapping from "
+                "base endpoint labels to update endpoint labels."
+            )
+
+        operation = UpdateColumnsByKey(
+            base_key=base_key,
+            update_key=update_key,
+            column_mapping=tuple(column_mapping.items()),
+            endpoint_mapping=tuple(endpoint_mapping.items()),
+            reason=reason,
+        )
+
+        specification = {
+            "schema_version": 1,
+            "name": name,
+            **operation.to_dict(),
+        }
+
+        return self._create(
+            parents=(
+                base,
+                updates,
+            ),
             specification=specification,
             version=version,
             config_version=config_version,
@@ -157,23 +222,64 @@ class Transformer:
             states = [load_artifact(p) for p in parents]
             for state in states:
                 state.pairs.require_supported(operation="Transformer")
+
             exclusions = []
+            column_updates = []
+            unused_updates = []
+
             if specification["kind"] == "columns":
                 state, audit = apply_operations(
                     states[0],
-                    [operation_from_dict(op) for op in specification["operations"]],
+                    [
+                        operation_from_dict(operation)
+                        for operation in specification["operations"]
+                    ],
                 )
+
             elif specification["kind"] == "operations":
-                state, audit, exclusions = apply_mixed_operations(
+                (
+                    state,
+                    audit,
+                    exclusions,
+                ) = apply_mixed_operations(
                     states[0],
-                    [operation_from_dict(op) for op in specification["operations"]],
+                    [
+                        operation_from_dict(operation)
+                        for operation in specification["operations"]
+                    ],
                 )
-            else:
+
+            elif specification["kind"] == "keyed_update":
+                if len(states) != 2:
+                    raise ValueError(
+                        "A keyed update requires exactly two " "parent artifacts."
+                    )
+
+                operation = UpdateColumnsByKey.from_dict(specification)
+
+                (
+                    state,
+                    audit,
+                    column_updates,
+                    unused_updates,
+                ) = apply_keyed_update(
+                    base=states[0],
+                    updates=states[1],
+                    operation=operation,
+                )
+
+            elif specification["kind"] == "concatenate":
                 state, audit = concatenate_states(
                     states,
                     mappings=specification["mappings"],
-                    identity_columns=specification["identity_columns"],
-                    cohort_column=specification["cohort_column"],
+                    identity_columns=(specification["identity_columns"]),
+                    cohort_column=(specification["cohort_column"]),
+                )
+
+            else:
+                raise ValueError(
+                    "Unknown Transformer specification kind: "
+                    f"{specification['kind']!r}."
                 )
             group = self.dataset_group.require_group("transformer")
             version_group = group.require_group(f"version{version}")
@@ -196,6 +302,8 @@ class Transformer:
                 specification=specification,
                 audit=audit,
                 exclusions=exclusions,
+                column_updates=column_updates,
+                unused_updates=unused_updates,
             )
             config_group.attrs["meta"] = {
                 "status": "completed",

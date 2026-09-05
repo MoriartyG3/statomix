@@ -207,6 +207,8 @@ def publish_artifact(
     specification,
     audit,
     exclusions=(),
+    column_updates=(),
+    unused_updates=(),
 ):
     """Called under the producer lock. Rename a complete staged directory once."""
     if destination.exists():
@@ -224,6 +226,8 @@ def publish_artifact(
             path=staging / "audit.xlsx",
             audit=audit,
             exclusions=exclusions,
+            column_updates=column_updates,
+            unused_updates=unused_updates,
             parents=parents,
             specification=specification,
         )
@@ -242,6 +246,22 @@ def publish_artifact(
                 index=False,
             )
             filenames["exclusions"] = "excluded_rows.parquet"
+
+        if column_updates:
+            pd.DataFrame(column_updates).to_parquet(
+                staging / "column_updates.parquet",
+                index=False,
+            )
+
+            filenames["column_updates"] = "column_updates.parquet"
+
+        if unused_updates:
+            pd.DataFrame(unused_updates).to_parquet(
+                staging / "unused_update_rows.parquet",
+                index=False,
+            )
+
+            filenames["unused_updates"] = "unused_update_rows.parquet"
         files = {
             key: {
                 "path": (destination / filename).relative_to(project_root).as_posix(),
