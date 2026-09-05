@@ -64,7 +64,10 @@ def create_artifact_survival_summary(analyzer, bundle):
                 # Hash-derived filenames remain safe for arbitrary endpoint labels.
                 filename = digest_json(label)[:24] + ".png"
                 maximum = float(frame["time"].max())
-                ticks = np.linspace(0, maximum, 6) if maximum > 0 else [0.0]
+                ticks = _survival_axis_ticks(
+                    maximum=maximum,
+                    unit_name=evaluation["unit"]["name"],
+                )
                 survival.plot_km_curve(
                     title=label,
                     xlabel=f"Time ({evaluation['unit']['name']})",
@@ -84,6 +87,8 @@ def create_artifact_survival_summary(analyzer, bundle):
                         "endpoint": label,
                         "kind": "kaplan_meier",
                         "path": f"km_plots/{filename}",
+                        "x_axis_unit": evaluation["unit"]["name"],
+                        "x_axis_ticks": ticks,
                     }
                 )
             frame = (
@@ -114,3 +119,32 @@ def create_artifact_survival_summary(analyzer, bundle):
             shutil.rmtree(stage)
             raise
     return destination / "descriptives.xlsx"
+
+
+def _survival_axis_ticks(
+    *,
+    maximum: float,
+    unit_name: str,
+) -> list[int] | list[float]:
+    """Choose display ticks without modifying survival times.
+
+    Month-based axes use 12-month intervals within the observed range.
+    Other units retain the existing six-tick display behaviour.
+    """
+    maximum = float(maximum)
+
+    if not np.isfinite(maximum) or maximum < 0:
+        raise ValueError(
+            "The maximum survival duration must be finite and nonnegative."
+        )
+
+    normalized_unit = unit_name.strip().casefold()
+
+    if normalized_unit in {"month", "months"}:
+        last_tick = 12 * int(maximum // 12)
+        return list(range(0, last_tick + 1, 12))
+
+    if maximum == 0:
+        return [0.0]
+
+    return np.linspace(0, maximum, 6).tolist()

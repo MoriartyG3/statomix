@@ -604,26 +604,42 @@ def test_artifact_relocation(project, tmp_path):
     assert load_artifact(relocated).df["duration"].tolist() == pytest.approx([1, 2, 3])
 
 
-def test_survival_summary_passes_units_and_exact_times(project, monkeypatch):
+@pytest.mark.parametrize("time_points", [[], [1, 2]])
+def test_survival_summary_passes_units_and_exact_times(
+    project,
+    monkeypatch,
+    time_points,
+):
+    from statomix.pipelines.analyzer import artifact_survival
+
     dataset, parent = materialize(project)
     child = convert(dataset, parent)
+
     dataset.configure_analyzer_from_artifact(
         source=child,
         version=2,
         config_version=1,
-        survival_evaluation={"OS": {"unit": MONTHS, "time_points": [1, 2]}},
+        survival_evaluation={
+            "OS": {
+                "unit": MONTHS,
+                "time_points": time_points,
+            }
+        },
     )
-    from statomix.pipelines.analyzer import artifact_survival
 
     calls = []
+    captured_ticks = []
 
     class FakeSurvival:
         def __init__(self, *, surv_label, surv_df):
             self.descriptives = {"test": 1}
+
+            # The plotting correction must not rescale input durations.
             assert surv_df["time"].tolist() == pytest.approx([1, 2, 3])
 
         def plot_km_curve(self, **kwargs):
             calls.append(kwargs["xlabel"])
+            captured_ticks.append(list(kwargs["x_axis_range"]))
             kwargs["save_path"].write_bytes(b"fake image")
 
         def get_survival_probability(self, *, time_point):
@@ -632,19 +648,52 @@ def test_survival_summary_passes_units_and_exact_times(project, monkeypatch):
         def get_rmst(self, *, restricted_time):
             calls.append(("rmst", restricted_time))
 
-    monkeypatch.setattr(artifact_survival, "SingleClassSurv", FakeSurvival)
-    report = dataset.analyzer._create_surv_summary_report(version=2, config_version=1)
-    assert calls == [
-        "Time (months)",
-        ("probability", 1),
-        ("rmst", 1),
-        ("probability", 2),
-        ("rmst", 2),
-    ]
+    monkeypatch.setattr(
+        artifact_survival,
+        "SingleClassSurv",
+        FakeSurvival,
+    )
+
+    report = dataset.analyzer._create_surv_summary_report(
+        version=2,
+        config_version=1,
+    )
+
+    expected_calls = ["Time (months)"]
+
+    for point in time_points:
+        expected_calls.append(("probability", point))
+        expected_calls.append(("rmst", point))
+
+    assert calls == expected_calls
+
+    # This fixture ends at 3 months: no 12-month tick lies in its range.
+    # Display ticks must not depend on statistical evaluation times.
+    assert captured_ticks == [[0]]
     assert report.exists()
-    dataset.analyzer._create_surv_summary_report(version=2, config_version=1)
-    assert len(calls) == 5
-    manifest = json.loads((report.parent / "report_manifest.json").read_text())
-    (report.parent / manifest["plots"][0]["path"]).unlink()
+
+    manifest_path = report.parent / "report_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    plot_record = manifest["plots"][0]
+
+    assert plot_record["endpoint"] == "OS"
+    assert plot_record["x_axis_unit"] == "months"
+    assert plot_record["x_axis_ticks"] == [0]
+
+    # Reading a completed report must not refit or regenerate it.
+    dataset.analyzer._create_surv_summary_report(
+        version=2,
+        config_version=1,
+    )
+
+    assert calls == expected_calls
+    assert captured_ticks == [[0]]
+
+    # A missing recorded plot must still be detected.
+    (report.parent / plot_record["path"]).unlink()
+
     with pytest.raises(FileNotFoundError):
-        dataset.analyzer._create_surv_summary_report(version=2, config_version=1)
+        dataset.analyzer._create_surv_summary_report(
+            version=2,
+            config_version=1,
+        )
